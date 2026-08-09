@@ -56,7 +56,7 @@
         "Działki i budynki (EGiB)": egibLayer,
         "Plan zagospodarowania (MPZP)": mpzpLayer,
       },
-      { position: "topright", collapsed: true }
+      { position: "topright", collapsed: false }
     )
     .addTo(map);
 
@@ -200,17 +200,21 @@
     egibInner += `<p class="disclaimer" style="margin-top:10px;padding-top:8px;">Budynki na działce</p>`;
     if (bld.status === "ok" && bld.buildings && bld.buildings.length) {
       egibInner += bld.buildings
-        .map(
-          (b) => `
+        .map((b) => {
+          const levels = [];
+          if (b.levels_above_ground) levels.push(`${b.levels_above_ground} nadz.`);
+          if (b.levels_below_ground) levels.push(`${b.levels_below_ground} podz.`);
+          const levelsTxt = levels.length ? ` · kondygnacje: ${levels.join(" / ")}` : "";
+          return `
         <div class="building-row">
           <span>${escapeHTML(b.label)}<span class="tag">${
             b.fully_within_parcel ? "w całości na działce" : "częściowo na działce"
-          }</span></span>
+          }${levelsTxt}</span></span>
           <span>~${fmtArea(b.area_m2)}</span>
-        </div>`
-        )
+        </div>`;
+        })
         .join("");
-      egibInner += `<p class="disclaimer">Źródło: ${escapeHTML(bld.source)}. GUGiK nie udostępnia atrybutów budynków (liczba pięter, funkcja) przez żadne otwarte API — to najlepszy dostępny substytut.</p>`;
+      egibInner += `<p class="disclaimer">Źródło: ${escapeHTML(bld.source)}. Żadna darmowa usługa GUGiK (KIEG, BDOT) nie udostępnia atrybutów budynku (identyfikator, kondygnacje, data aktualności) przez otwarte API — potwierdzone: zwracają ten sam ogólny komunikat "usługa nie udostępnia danych opisowych" niezależnie od lokalizacji. Liczbę kondygnacji pokazujemy tylko wtedy, gdy jest oznaczona w OpenStreetMap.</p>`;
     } else if (bld.status === "ok") {
       egibInner += `<p class="disclaimer">Nie wykryto budynków na tej działce.</p>`;
     } else {
@@ -287,6 +291,10 @@
         zon.found === "yes"
           ? tableHTML(zon.table)
           : `<p>Brak planu miejscowego w tej lokalizacji.</p>`;
+    } else if (zon.status === "partial") {
+      zonInner = `<p style="color:var(--danger);font-weight:700;">Działka jest objęta planem miejscowym</p><p class="disclaimer">${escapeHTML(
+        zon.message
+      )}</p>`;
     } else {
       zonInner = `<p>${escapeHTML(zon.message)}</p>`;
     }
