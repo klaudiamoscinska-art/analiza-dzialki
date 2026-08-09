@@ -20,6 +20,46 @@
     maxZoom: 20,
   }).addTo(map);
 
+  // Toggleable overlays. NOTE: SOPO/hydrogeologia (cbdgmapa.pgi.gov.pl) are
+  // deliberately NOT offered as map tiles here — that host sits behind an
+  // Incapsula WAF that intermittently blocks plain tile requests too, so
+  // those two sources stay panel-only (see main.py docstring for details).
+  const egibLayer = L.tileLayer.wms(
+    "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
+    {
+      layers: "dzialki,numery_dzialek,budynki",
+      format: "image/png",
+      transparent: true,
+      version: "1.1.1",
+      maxZoom: 22,
+      attribution: "GUGiK EGiB",
+    }
+  );
+  const mpzpLayer = L.tileLayer.wms(
+    "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego",
+    {
+      layers: "plany",
+      format: "image/png",
+      transparent: true,
+      version: "1.1.1",
+      maxZoom: 22,
+      opacity: 0.55,
+      attribution: "GUGiK MPZP",
+    }
+  );
+  egibLayer.addTo(map);
+
+  L.control
+    .layers(
+      null,
+      {
+        "Działki i budynki (EGiB)": egibLayer,
+        "Plan zagospodarowania (MPZP)": mpzpLayer,
+      },
+      { position: "topright", collapsed: true }
+    )
+    .addTo(map);
+
   let parcelLayer = null;
 
   const input = document.getElementById("parcelInput");
@@ -123,6 +163,19 @@
     return div.innerHTML;
   }
 
+  function tableHTML(rows) {
+    if (!rows || !rows.length) return "";
+    const body = rows
+      .map(
+        (r) =>
+          `<tr><td class="label">${escapeHTML(r.label)}</td><td class="value">${escapeHTML(
+            r.value || "—"
+          )}</td></tr>`
+      )
+      .join("");
+    return `<table class="data-table">${body}</table>`;
+  }
+
   function renderResults(data) {
     const p = data.parcel;
     let html = "";
@@ -133,75 +186,144 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
-    // KROK 1 — landslide risk
+    // 1 — Ewidencja gruntów i budynków
+    const cad = data.cadastre;
+    const bld = data.buildings;
+    let egibInner = "";
+    if (cad.status === "ok" && cad.table.length) {
+      egibInner += tableHTML(cad.table);
+    } else if (cad.status !== "ok") {
+      egibInner += `<p>${escapeHTML(cad.message)}</p>`;
+    } else {
+      egibInner += `<p>Brak danych w tej lokalizacji.</p>`;
+    }
+    egibInner += `<p class="disclaimer" style="margin-top:10px;padding-top:8px;">Budynki na działce</p>`;
+    if (bld.status === "ok" && bld.buildings && bld.buildings.length) {
+      egibInner += bld.buildings
+        .map(
+          (b) => `
+        <div class="building-row">
+          <span>${escapeHTML(b.label)}<span class="tag">${
+            b.fully_within_parcel ? "w całości na działce" : "częściowo na działce"
+          }</span></span>
+          <span>~${fmtArea(b.area_m2)}</span>
+        </div>`
+        )
+        .join("");
+      egibInner += `<p class="disclaimer">Źródło: ${escapeHTML(bld.source)}. GUGiK nie udostępnia atrybutów budynków (liczba pięter, funkcja) przez żadne otwarte API — to najlepszy dostępny substytut.</p>`;
+    } else if (bld.status === "ok") {
+      egibInner += `<p class="disclaimer">Nie wykryto budynków na tej działce.</p>`;
+    } else {
+      egibInner += `<p class="disclaimer">${escapeHTML(bld.message)}</p>`;
+    }
+    html += `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
+
+    // 2 — Zagrożenie osuwiskowe
     const ls = data.landslide;
     if (ls.status === "ok") {
-      if (ls.has_landslide) {
-        html += cardHTML({
-          title: "Zagrożenie osuwiskowe",
-          text: "WYKRYTO OSUWISKO / TEREN ZAGROŻONY",
-          tone: "danger",
-        });
-      } else {
-        html += cardHTML({
-          title: "Zagrożenie osuwiskowe",
-          text: "BRAK ZAGROŻEŃ OSUWISKOWYCH",
-          tone: "ok",
-        });
-      }
+      html += ls.has_landslide
+        ? cardHTML({ title: "Zagrożenie osuwiskowe", text: "WYKRYTO OSUWISKO / TEREN ZAGROŻONY", tone: "danger" })
+        : cardHTML({ title: "Zagrożenie osuwiskowe", text: "BRAK ZAGROŻEŃ OSUWISKOWYCH", tone: "ok" });
     } else {
-      html += cardHTML({
-        title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)",
-        text: ls.message || "Usługa niedostępna.",
-      });
+      html += cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
     }
 
-    // KROK 2a — utilities (GESUT)
-    html += cardHTML({
-      title: "Uzbrojenie terenu (GESUT)",
-      text:
-        data.utilities.status === "ok"
-          ? data.utilities.summary
-          : data.utilities.message,
-    });
+    // 3 — Media / uzbrojenie terenu (GESUT) — chip grid
+    const ut = data.utilities;
+    let utInner = "";
+    if (ut.status === "ok") {
+      utInner = `<div class="chip-grid">${ut.utilities
+        .map(
+          (u) => `
+        <div class="chip${u.present ? " present" : ""}">
+          <span>${escapeHTML(u.label)}</span><span class="dot"></span>
+        </div>`
+        )
+        .join("")}</div>`;
+    } else {
+      utInner = `<p>${escapeHTML(ut.message)}</p>`;
+    }
+    html += `<div class="card muted"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
 
-    // KROK 2b — cadastre / land classification
-    html += cardHTML({
-      title: "Ewidencja gruntów (EGiB)",
-      text:
-        data.cadastre.status === "ok" ? data.cadastre.summary : data.cadastre.message,
-    });
+    // 4 — Hydrologia i zagrożenie powodziowe
+    const hy = data.hydrology;
+    let hyInner = "";
+    const fz = hy.flood_zone;
+    if (fz.status === "ok") {
+      hyInner += fz.in_flood_zone
+        ? `<p style="color:var(--danger);font-weight:700;">TEREN W STREFIE ZALEWOWEJ (ISOK)${
+            fz.depth_range ? " — głębokość: " + escapeHTML(fz.depth_range) : ""
+          }</p>`
+        : `<p style="color:var(--ok);font-weight:700;">Brak strefy zalewowej ISOK w tym miejscu</p>`;
+    } else {
+      hyInner += `<p class="disclaimer">${escapeHTML(fz.message)}</p>`;
+    }
+    const wl = hy.waterlogging;
+    if (wl.status === "ok") {
+      hyInner += wl.at_risk
+        ? `<p style="color:var(--danger);">Teren podatny na podtopienia (wody gruntowe, PIG-PIB)</p>`
+        : `<p class="disclaimer">Brak wykrytego ryzyka podtopień (wody gruntowe)</p>`;
+    }
+    const ww = hy.waterways;
+    if (ww.status === "ok" && ww.waterways.length) {
+      hyInner += `<p class="disclaimer" style="margin-top:8px;">Cieki wodne w promieniu 400 m</p>`;
+      hyInner += ww.waterways
+        .map(
+          (w) => `<div class="waterway-row"><span>${escapeHTML(w.name)} <span class="kind">(${escapeHTML(
+            w.kind
+          )})</span></span><span>${w.distance_m} m</span></div>`
+        )
+        .join("");
+    } else if (ww.status === "ok") {
+      hyInner += `<p class="disclaimer">Brak cieków wodnych w promieniu 400 m.</p>`;
+    }
+    html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
-    // KROK 2c — zoning (MPZP)
-    html += cardHTML({
-      title: "Przeznaczenie (MPZP)",
-      text: data.zoning.status === "ok" ? data.zoning.summary : data.zoning.message,
-    });
+    // 5 — Plany zagospodarowania (MPZP), tabular
+    const zon = data.zoning;
+    let zonInner = "";
+    if (zon.status === "ok") {
+      zonInner =
+        zon.found === "yes"
+          ? tableHTML(zon.table)
+          : `<p>Brak planu miejscowego w tej lokalizacji.</p>`;
+    } else {
+      zonInner = `<p>${escapeHTML(zon.message)}</p>`;
+    }
+    html += `<div class="card muted"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
 
-    // KROK 4 — GUS-style value estimate
-    const g = data.gus_estimate;
-    if (g.status === "ok") {
+    // 6 — Pozwolenia na budowę (GUNB/RWDZ)
+    html += `
+      <div class="card muted">
+        <h3>Pozwolenia na budowę (GUNB / RWDZ)</h3>
+        <p>Rejestr RWDZ nie udostępnia otwartego API (wyszukiwanie chronione CAPTCHA) — dane trzeba sprawdzić ręcznie.</p>
+        <a class="link-out-btn" href="${data.permits.gunb_link}" target="_blank" rel="noopener noreferrer">Sprawdź w rejestrze GUNB →</a>
+      </div>`;
+
+    // 7 — Wycena statystyczna (land + buildings, split)
+    const val = data.valuation;
+    if (val.status === "ok") {
       html += `
         <div class="card value-card">
-          <p class="eyebrow">Wycena statystyczna</p>
-          <p class="amount">${fmtPLN(g.estimated_value_pln)}</p>
-          <p class="breakdown">
-            ${fmtArea(g.area_m2)} × ${g.price_per_m2} zł/m²
-            (śr. woj. ${escapeHTML(g.voivodeship_name || "")})
-          </p>
-          <p class="disclaimer">
-            Szacunkowa wartość statystyczna gruntu — wyliczona na podstawie
-            powierzchni działki i orientacyjnej średniej ceny gruntów dla
-            województwa. Nie jest to wycena rzeczoznawcy majątkowego ani
-            operat szacunkowy i nie może być podstawą decyzji finansowych
-            lub prawnych.
-          </p>
+          <p class="eyebrow">Szacunkowa wartość działki (grunt)</p>
+          <p class="amount">${fmtPLN(val.land.value_pln)}</p>
+          <p class="breakdown">${fmtArea(val.land.area_m2)} × ${val.land.price_per_m2} zł/m² (śr. woj. ${escapeHTML(
+        val.land.voivodeship_name || ""
+      )})</p>
         </div>`;
+      if (val.buildings) {
+        html += `
+          <div class="card value-card secondary">
+            <p class="eyebrow">Szacunkowa wartość budynków</p>
+            <p class="amount">${fmtPLN(val.buildings.value_pln)}</p>
+            <p class="breakdown">${fmtArea(val.buildings.footprint_area_m2)} pow. zabudowy × ${
+          val.buildings.assumed_cost_per_m2
+        } zł/m² (${val.buildings.building_count} budynek/-ów)</p>
+          </div>`;
+      }
+      html += `<p class="disclaimer">Wyceny mają charakter wyłącznie orientacyjny i statystyczny — nie są operatem szacunkowym rzeczoznawcy i nie mogą być podstawą decyzji finansowych lub prawnych. Wartość budynków to bardzo uproszczony szacunek na podstawie powierzchni zabudowy, bez uwzględnienia liczby pięter, stanu czy standardu wykończenia.</p>`;
     } else {
-      html += cardHTML({
-        title: "Wycena statystyczna",
-        text: g.message || "Nie udało się wyliczyć wyceny.",
-      });
+      html += cardHTML({ title: "Wycena statystyczna", text: val.message });
     }
 
     results.innerHTML = html;

@@ -244,6 +244,112 @@
     color:#5b6d67;
     margin:-4px 0 14px;
   }
+
+  /* ---------- LEAFLET LAYER CONTROL ---------- */
+  .leaflet-control-layers{
+    border-radius:8px !important;
+    font-family:var(--sans);
+    font-size:13px;
+  }
+  .leaflet-control-layers-toggle{
+    width:34px !important;
+    height:34px !important;
+  }
+
+  /* ---------- DATA TABLES ---------- */
+  .data-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  .data-table tr{ border-bottom:1px solid var(--line); }
+  .data-table tr:last-child{ border-bottom:none; }
+  .data-table td{ padding:6px 4px; vertical-align:top; }
+  .data-table td.label{ color:#5b6d67; width:46%; padding-right:10px; }
+  .data-table td.value{ font-weight:600; text-align:right; }
+
+  /* ---------- UTILITY CHIP GRID (GESUT) ---------- */
+  .chip-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:4px;
+  }
+  .chip{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:6px;
+    padding:9px 11px;
+    border-radius:10px;
+    font-size:13.5px;
+    border:1px solid var(--line);
+    background:#fff;
+    color:#5b6d67;
+  }
+  .chip.present{
+    border-color:var(--ok);
+    background:var(--ok-bg);
+    color:var(--ok);
+    font-weight:700;
+  }
+  .chip .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:currentColor;
+    flex:0 0 auto;
+    opacity:.85;
+  }
+
+  /* ---------- BUILDING LIST ---------- */
+  .building-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:9px 11px;
+    border-radius:10px;
+    background:#f6f8f7;
+    border:1px solid var(--line);
+    margin-bottom:6px;
+    font-size:14px;
+  }
+  .building-row .tag{
+    font-size:11px;
+    color:#5b6d67;
+    display:block;
+    margin-top:2px;
+  }
+
+  /* ---------- WATERWAY LIST ---------- */
+  .waterway-row{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    padding:7px 0;
+    font-size:14px;
+    border-bottom:1px solid var(--line);
+  }
+  .waterway-row:last-child{ border-bottom:none; }
+  .waterway-row .kind{ color:#5b6d67; font-size:12.5px; }
+
+  /* ---------- LINK-OUT BUTTON (GUNB) ---------- */
+  .link-out-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-top:10px;
+    padding:11px 16px;
+    border-radius:10px;
+    background:var(--ink);
+    color:#fff;
+    text-decoration:none;
+    font-weight:600;
+    font-size:14px;
+  }
+
+  /* ---------- SPLIT VALUE CARDS ---------- */
+  .value-card.secondary{
+    background:#eef2f0;
+    color:var(--ink);
+  }
+  .value-card.secondary .eyebrow{ color:var(--survey); }
+  .value-card.secondary .amount{ color:var(--ink); }
+  .value-card.secondary .breakdown{ color:#5b6d67; }
 </style>
 </head>
 <body>
@@ -272,8 +378,9 @@
     <div id="results">
       <div id="placeholder">
         Wpisz identyfikator TERYT działki (lub "obręb numer"),<br/>
-        aby zobaczyć zagrożenia osuwiskowe, uzbrojenie terenu,<br/>
-        zapisy planu miejscowego oraz szacunkową wartość gruntu.
+        aby zobaczyć ewidencję gruntów i budynków, zagrożenia<br/>
+        osuwiskowe, media, hydrologię, plany zagospodarowania,<br/>
+        pozwolenia na budowę oraz szacunkową wartość gruntu i budynków.
       </div>
     </div>
   </div>
