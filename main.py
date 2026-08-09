@@ -39,6 +39,7 @@ Map layers (frontend, toggleable):
 """
 
 import asyncio
+import io
 import json
 import re
 from typing import Any, Optional
@@ -49,6 +50,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from pyproj import Geod, Transformer
 from shapely import wkb, wkt
 from shapely.geometry import mapping, shape
@@ -110,7 +112,30 @@ KIMPZP_LAYERS = "plany"
 # through any open API: (a) per-building footprints+attributes on the parcel,
 # (b) nearby named watercourses. Poland's OSM building layer was bulk-imported
 # from geoportal.gov.pl building footprints, so geometry closely tracks EGiB.
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
+]
+# Overpass's usage policy expects a descriptive User-Agent identifying the
+# client; requests without one are more likely to be rate-limited/blocked
+# (confirmed live: identical request failed without a UA, succeeded with one).
+OVERPASS_HEADERS = {"User-Agent": "AnalizaDzialkiGIS/2.0 (kontakt: patrz repozytorium)"}
+
+
+async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, Any]:
+    last_exc: Optional[Exception] = None
+    for url in OVERPASS_URLS:
+        try:
+            resp = await client.post(
+                url, data={"data": query}, headers=OVERPASS_HEADERS, timeout=14.0
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            last_exc = exc
+            continue
+    raise last_exc or RuntimeError("Overpass niedostępny")
 
 # GUNB's official building-permits register (RWDZ) has no public API and its
 # search UI is CAPTCHA-protected. We only offer a deep link, never scraped data.
@@ -271,12 +296,9 @@ async def get_buildings_on_parcel(client: httpx.AsyncClient, geometry: BaseGeome
         f"out geom;"
     )
     try:
-        resp = await client.post(OVERPASS_URL, data={"data": query}, timeout=30.0)
-        resp.raise_for_status()
-        data = resp.json()
+        data = await _overpass_query(client, query)
     except Exception as exc:
         return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
-
     buildings = []
     for el in data.get("elements", []):
         coords = el.get("geometry", [])
@@ -292,11 +314,14 @@ async def get_buildings_on_parcel(client: httpx.AsyncClient, geometry: BaseGeome
         if not geometry.intersects(poly):
             continue
         area_m2, _ = geod.geometry_area_perimeter(poly)
-        tag = el.get("tags", {}).get("building", "yes")
+        tags = el.get("tags", {})
+        tag = tags.get("building", "yes")
         buildings.append({
             "label": OSM_BUILDING_LABELS.get(tag, f"budynek ({tag})"),
             "area_m2": round(abs(area_m2), 1),
             "fully_within_parcel": geometry.contains(poly),
+            "levels_above_ground": tags.get("building:levels"),
+            "levels_below_ground": tags.get("building:levels:underground"),
             "osm_id": el.get("id"),
         })
 
@@ -363,11 +388,43 @@ def _feature_info_has_data(text: str) -> bool:
 
 
 async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
+    """IMPORTANT FINDING (confirmed live, twice, at an urban location with a
+    verified real water main AND at this app's rural test parcel): KIUT's
+    GetFeatureInfo attribute endpoint ALWAYS returns the generic message
+    "Usługa nie udostępnia danych opisowych dla wybranego obiektu" —
+    regardless of location, layer, or search radius. This is a structural
+    limitation of the national aggregator (it doesn't forward attribute
+    queries to the 385 federated county backends at all), not a bug in this
+    app — and it affects any client using this endpoint the same way.
+
+    Workaround (verified live): the SAME service's GetMap (image rendering)
+    operation DOES draw real utility lines. We render a small tile per layer
+    and count non-transparent pixels; a calibrated threshold distinguishes a
+    real nearby line (350-950 px in testing) from rendering noise/labels
+    (2-8 px when nothing is there). This trades exact attribute text for a
+    reliable presence signal, which is what the UI actually needs.
+    """
+    half_extent_m = 60.0
+    size_px = 240
+    threshold_px = 60
+
     async def one(label_key: str, label: str, layer: str) -> dict[str, Any]:
+        bbox = (
+            f"{x_2180 - half_extent_m},{y_2180 - half_extent_m},"
+            f"{x_2180 + half_extent_m},{y_2180 + half_extent_m}"
+        )
+        params = {
+            "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
+            "LAYERS": layer, "STYLES": "", "SRS": "EPSG:2180", "BBOX": bbox,
+            "WIDTH": str(size_px), "HEIGHT": str(size_px),
+            "FORMAT": "image/png", "TRANSPARENT": "true",
+        }
         try:
-            resp = await wms_get_feature_info(client, KIUT_URL, layer, x_2180, y_2180)
-            text = _clean_feature_info_text(resp.text)
-            return {"key": label_key, "label": label, "present": _feature_info_has_data(text)}
+            resp = await client.get(KIUT_URL, params=params, follow_redirects=True)
+            resp.raise_for_status()
+            img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+            non_transparent = sum(1 for px in img.getdata() if px[3] > 40)
+            return {"key": label_key, "label": label, "present": non_transparent > threshold_px}
         except Exception:
             return {"key": label_key, "label": label, "present": False, "error": True}
 
@@ -396,9 +453,7 @@ async def get_waterways(client: httpx.AsyncClient, geometry: BaseGeometry) -> di
         f"out geom;"
     )
     try:
-        resp = await client.post(OVERPASS_URL, data={"data": query}, timeout=30.0)
-        resp.raise_for_status()
-        data = resp.json()
+        data = await _overpass_query(client, query)
     except Exception as exc:
         return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
 
@@ -469,22 +524,68 @@ async def get_waterlogging_risk(client: httpx.AsyncClient, geometry: BaseGeometr
         return {"status": "error", "message": f"Usługa PIG-PIB niedostępna: {exc}"}
 
 
+async def _mpzp_has_plan_drawn(client: httpx.AsyncClient, x_2180: float, y_2180: float, half_extent_m: float = 15.0) -> bool:
+    """GetMap (rendering) responds fast and reliably even for gminas with no
+    digitized plan (confirmed live: 0 non-transparent pixels, ~2s). Use it as
+    a cheap pre-check before attempting the much less reliable GetFeatureInfo
+    call below."""
+    bbox = f"{x_2180-half_extent_m},{y_2180-half_extent_m},{x_2180+half_extent_m},{y_2180+half_extent_m}"
+    params = {
+        "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
+        "LAYERS": "plany", "STYLES": "", "SRS": "EPSG:2180", "BBOX": bbox,
+        "WIDTH": "150", "HEIGHT": "150", "FORMAT": "image/png", "TRANSPARENT": "true",
+    }
+    resp = await client.get(KIMPZP_URL, params=params, follow_redirects=True, timeout=15.0)
+    resp.raise_for_status()
+    img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+    return any(px[3] > 10 for px in img.getdata())
+
+
 async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
+    """KIMPZP's GetFeatureInfo (attribute) call has been confirmed live to
+    hang indefinitely (tested up to 60s with zero response) for gminas that
+    haven't published their own plan WMS backend — it is not a matter of
+    "waiting longer". GetMap (rendering), by contrast, reliably returns fast
+    even for these gminas (confirmed: 0 drawn pixels in ~2s = no plan).
+    We therefore probe with GetMap first; only if it shows a plan is actually
+    drawn there do we attempt the slower, less reliable GetFeatureInfo call,
+    with its own short bounded timeout so a hang there can't stall the rest
+    of the response."""
     try:
-        resp = await wms_get_feature_info(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, half_extent_m=15.0)
+        has_plan_visually = await _mpzp_has_plan_drawn(client, x_2180, y_2180)
+    except Exception as exc:
+        return {"status": "error", "message": f"Usługa MPZP (podgląd mapy) niedostępna: {exc}"}
+
+    if not has_plan_visually:
+        return {"status": "ok", "found": "no", "table": []}
+
+    try:
+        resp = await asyncio.wait_for(
+            wms_get_feature_info(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, half_extent_m=15.0),
+            timeout=12.0,
+        )
         table = _parse_feature_info_table(resp.text)
         text = _clean_feature_info_text(resp.text)
         has_plan = _feature_info_has_data(text)
         return {"status": "ok", "found": "yes" if has_plan else "no", "table": table}
-    except httpx.TimeoutException:
-        # Confirmed live: this gmina-federated service can take >25s to
-        # respond for some locations. Match the reference app's own wording.
+    except (httpx.TimeoutException, asyncio.TimeoutError):
         return {
-            "status": "error",
-            "message": "Serwer MPZP nie odpowiedział w wyznaczonym czasie — spróbuj ponownie za chwilę.",
+            "status": "partial",
+            "found": "yes",
+            "table": [],
+            "message": (
+                "Działka jest objęta planem miejscowym (widoczny na mapie), ale "
+                "serwer gminy nie zwrócił szczegółów w wyznaczonym czasie — "
+                "spróbuj ponownie za chwilę."
+            ),
         }
     except Exception as exc:
-        return {"status": "error", "message": f"Usługa MPZP niedostępna: {exc}"}
+        return {
+            "status": "partial",
+            "found": "yes",
+            "table": [],
+            "message": f"Działka jest objęta planem miejscowym, ale nie udało się pobrać szczegółów: {exc}",
+        }
 
 
 def get_gunb_link(parcel_no: str) -> str:
