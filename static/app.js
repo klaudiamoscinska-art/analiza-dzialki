@@ -47,6 +47,18 @@
       attribution: "GUGiK MPZP",
     }
   );
+  const appLayer = L.tileLayer.wms(
+    "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaAktowPlanowaniaPrzestrzennego",
+    {
+      layers: "app",
+      format: "image/png",
+      transparent: true,
+      version: "1.1.1",
+      maxZoom: 22,
+      opacity: 0.55,
+      attribution: "GUGiK Rejestr Urbanistyczny",
+    }
+  );
   egibLayer.addTo(map);
 
   L.control
@@ -54,7 +66,8 @@
       null,
       {
         "Działki i budynki (EGiB)": egibLayer,
-        "Plan zagospodarowania (MPZP)": mpzpLayer,
+        "Plan miejscowy — MPZP (starszy)": mpzpLayer,
+        "Plan miejscowy — Rejestr Urbanistyczny": appLayer,
       },
       { position: "topright", collapsed: false }
     )
@@ -214,7 +227,9 @@
         </div>`;
         })
         .join("");
-      egibInner += `<p class="disclaimer">Źródło: ${escapeHTML(bld.source)}. Żadna darmowa usługa GUGiK (KIEG, BDOT) nie udostępnia atrybutów budynku (identyfikator, kondygnacje, data aktualności) przez otwarte API — potwierdzone: zwracają ten sam ogólny komunikat "usługa nie udostępnia danych opisowych" niezależnie od lokalizacji. Liczbę kondygnacji pokazujemy tylko wtedy, gdy jest oznaczona w OpenStreetMap.</p>`;
+      egibInner += `<p class="disclaimer">Źródło: ${escapeHTML(
+        bld.source
+      )}. Żadna darmowa usługa GUGiK nie udostępnia atrybutów budynku (identyfikator, kondygnacje) przez otwarte API — potwierdzone testami. Liczbę kondygnacji pokazujemy tylko, gdy jest oznaczona w OpenStreetMap.</p>`;
     } else if (bld.status === "ok") {
       egibInner += `<p class="disclaimer">Nie wykryto budynków na tej działce.</p>`;
     } else {
@@ -225,8 +240,14 @@
     // 2 — Zagrożenie osuwiskowe
     const ls = data.landslide;
     if (ls.status === "ok") {
+      const cats =
+        ls.matched_categories && ls.matched_categories.length
+          ? `<p class="disclaimer" style="color:inherit;opacity:.85;">Wykryte kategorie: ${escapeHTML(
+              ls.matched_categories.join(", ")
+            )}</p>`
+          : "";
       html += ls.has_landslide
-        ? cardHTML({ title: "Zagrożenie osuwiskowe", text: "WYKRYTO OSUWISKO / TEREN ZAGROŻONY", tone: "danger" })
+        ? `<div class="card danger"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}</div>`
         : cardHTML({ title: "Zagrożenie osuwiskowe", text: "BRAK ZAGROŻEŃ OSUWISKOWYCH", tone: "ok" });
     } else {
       html += cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
@@ -236,7 +257,8 @@
     const ut = data.utilities;
     let utInner = "";
     if (ut.status === "ok") {
-      utInner = `<div class="chip-grid">${ut.utilities
+      utInner = `<p class="disclaimer" style="margin:0 0 8px;">Wykrywanie na podstawie obrazu mapy — czy w pobliżu działki narysowana jest linia danego typu.</p>`;
+      utInner += `<div class="chip-grid">${ut.utilities
         .map(
           (u) => `
         <div class="chip${u.present ? " present" : ""}">
@@ -289,8 +311,10 @@
     if (zon.status === "ok") {
       zonInner =
         zon.found === "yes"
-          ? tableHTML(zon.table)
-          : `<p>Brak planu miejscowego w tej lokalizacji.</p>`;
+          ? `${zon.source ? `<p class="disclaimer">Źródło: ${escapeHTML(zon.source)}</p>` : ""}${tableHTML(
+              zon.table
+            )}`
+          : `<p>Brak planu miejscowego w tej lokalizacji (sprawdzono Rejestr Urbanistyczny i starszą usługę MPZP).</p>`;
     } else if (zon.status === "partial") {
       zonInner = `<p style="color:var(--danger);font-weight:700;">Działka jest objęta planem miejscowym</p><p class="disclaimer">${escapeHTML(
         zon.message
