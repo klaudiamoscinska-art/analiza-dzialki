@@ -91,6 +91,16 @@ KIMPZP_URL = (
     "https://mapy.geoportal.gov.pl/wss/ext/"
     "KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego"
 )
+# NEW (confirmed live, no auth needed, launched alongside "Rejestr Urbanistyczny"
+# on 2026-07-01): a modern national aggregator specifically for Akty
+# Planowania Przestrzennego (APP) — plans ogólne, MPZP, uchwały krajobrazowe
+# etc. As of testing, gminas are still uploading data into it nationally
+# (confirmed empty even for Warszawa), so it will start returning real plan
+# metadata (nazwa planu, uchwała, data wejścia w życie, status) as more
+# gminas populate it through the transition period (until 2026-09-30) and
+# beyond. Kept alongside the legacy KIMPZP, whichever answers first wins.
+KIAPP_URL = "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaAktowPlanowaniaPrzestrzennego"
+KIAPP_LAYERS = "app"
 
 # Per-utility-type GESUT layers with human labels (order = display order).
 KIUT_LAYERS = [
@@ -524,7 +534,9 @@ async def get_waterlogging_risk(client: httpx.AsyncClient, geometry: BaseGeometr
         return {"status": "error", "message": f"Usługa PIG-PIB niedostępna: {exc}"}
 
 
-async def _mpzp_has_plan_drawn(client: httpx.AsyncClient, x_2180: float, y_2180: float, half_extent_m: float = 15.0) -> bool:
+async def _mpzp_has_plan_drawn(
+    client: httpx.AsyncClient, url: str, layer: str, x_2180: float, y_2180: float, half_extent_m: float = 15.0
+) -> bool:
     """GetMap (rendering) responds fast and reliably even for gminas with no
     digitized plan (confirmed live: 0 non-transparent pixels, ~2s). Use it as
     a cheap pre-check before attempting the much less reliable GetFeatureInfo
@@ -532,60 +544,70 @@ async def _mpzp_has_plan_drawn(client: httpx.AsyncClient, x_2180: float, y_2180:
     bbox = f"{x_2180-half_extent_m},{y_2180-half_extent_m},{x_2180+half_extent_m},{y_2180+half_extent_m}"
     params = {
         "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
-        "LAYERS": "plany", "STYLES": "", "SRS": "EPSG:2180", "BBOX": bbox,
+        "LAYERS": layer, "STYLES": "", "SRS": "EPSG:2180", "BBOX": bbox,
         "WIDTH": "150", "HEIGHT": "150", "FORMAT": "image/png", "TRANSPARENT": "true",
     }
-    resp = await client.get(KIMPZP_URL, params=params, follow_redirects=True, timeout=15.0)
+    resp = await client.get(url, params=params, follow_redirects=True, timeout=15.0)
     resp.raise_for_status()
     img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
     return any(px[3] > 10 for px in img.getdata())
 
 
-async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
-    """KIMPZP's GetFeatureInfo (attribute) call has been confirmed live to
-    hang indefinitely (tested up to 60s with zero response) for gminas that
-    haven't published their own plan WMS backend — it is not a matter of
-    "waiting longer". GetMap (rendering), by contrast, reliably returns fast
-    even for these gminas (confirmed: 0 drawn pixels in ~2s = no plan).
-    We therefore probe with GetMap first; only if it shows a plan is actually
-    drawn there do we attempt the slower, less reliable GetFeatureInfo call,
-    with its own short bounded timeout so a hang there can't stall the rest
-    of the response."""
+async def _try_zoning_source(
+    client: httpx.AsyncClient, url: str, layer: str, x_2180: float, y_2180: float, source_label: str
+) -> Optional[dict[str, Any]]:
+    """Returns None if this source has no plan here (so the caller can try
+    the next source), or a result dict if it does (found, or a partial/error
+    that should still be surfaced to the user rather than silently skipped)."""
     try:
-        has_plan_visually = await _mpzp_has_plan_drawn(client, x_2180, y_2180)
+        has_plan_visually = await _mpzp_has_plan_drawn(client, url, layer, x_2180, y_2180)
     except Exception as exc:
-        return {"status": "error", "message": f"Usługa MPZP (podgląd mapy) niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa {source_label} niedostępna: {exc}"}
 
     if not has_plan_visually:
-        return {"status": "ok", "found": "no", "table": []}
+        return None
 
     try:
         resp = await asyncio.wait_for(
-            wms_get_feature_info(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, half_extent_m=15.0),
+            wms_get_feature_info(client, url, layer, x_2180, y_2180, half_extent_m=15.0),
             timeout=12.0,
         )
         table = _parse_feature_info_table(resp.text)
         text = _clean_feature_info_text(resp.text)
         has_plan = _feature_info_has_data(text)
-        return {"status": "ok", "found": "yes" if has_plan else "no", "table": table}
+        return {"status": "ok", "found": "yes" if has_plan else "no", "table": table, "source": source_label}
     except (httpx.TimeoutException, asyncio.TimeoutError):
         return {
-            "status": "partial",
-            "found": "yes",
-            "table": [],
+            "status": "partial", "found": "yes", "table": [], "source": source_label,
             "message": (
-                "Działka jest objęta planem miejscowym (widoczny na mapie), ale "
+                f"Działka jest objęta planem (widoczny na mapie, {source_label}), ale "
                 "serwer gminy nie zwrócił szczegółów w wyznaczonym czasie — "
                 "spróbuj ponownie za chwilę."
             ),
         }
     except Exception as exc:
         return {
-            "status": "partial",
-            "found": "yes",
-            "table": [],
-            "message": f"Działka jest objęta planem miejscowym, ale nie udało się pobrać szczegółów: {exc}",
+            "status": "partial", "found": "yes", "table": [], "source": source_label,
+            "message": f"Działka jest objęta planem ({source_label}), ale nie udało się pobrać szczegółów: {exc}",
         }
+
+
+async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
+    """Tries the new national APP aggregator (KIAPP) first — richer, act-level
+    metadata (nazwa planu, uchwała, data wejścia w życie, status) once gminas
+    populate it — then falls back to the legacy KIMPZP zoning-symbol service
+    if KIAPP has nothing here. Both use the same fast-GetMap-probe strategy
+    (see _mpzp_has_plan_drawn) since KIMPZP's GetFeatureInfo has been
+    confirmed live to hang indefinitely for gminas without their own backend."""
+    result = await _try_zoning_source(client, KIAPP_URL, KIAPP_LAYERS, x_2180, y_2180, "Rejestr Urbanistyczny/APP")
+    if result is not None:
+        return result
+
+    result = await _try_zoning_source(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, "MPZP (KIMPZP)")
+    if result is not None:
+        return result
+
+    return {"status": "ok", "found": "no", "table": []}
 
 
 def get_gunb_link(parcel_no: str) -> str:
@@ -679,6 +701,7 @@ async def analyze(parcel_id: str = Query(default="")):
         "map_layers": {
             "egib": {"url": KIEG_URL, "layers": "dzialki,numery_dzialek,budynki"},
             "mpzp": {"url": KIMPZP_URL, "layers": "plany"},
+            "app": {"url": KIAPP_URL, "layers": "app"},
         },
     }
 
