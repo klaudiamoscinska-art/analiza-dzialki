@@ -53,8 +53,9 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pyproj import Geod, Transformer
 from shapely import wkb, wkt
-from shapely.geometry import mapping, shape
+from shapely.geometry import LineString, mapping, shape
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import transform as shapely_transform
 
 # --------------------------------------------------------------------------
 # Real, verified endpoints
@@ -125,7 +126,6 @@ KIMPZP_LAYERS = "plany"
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
 ]
 # Overpass's usage policy expects a descriptive User-Agent identifying the
 # client; requests without one are more likely to be rate-limited/blocked
@@ -343,7 +343,104 @@ async def get_buildings_on_parcel(client: httpx.AsyncClient, geometry: BaseGeome
     }
 
 
+async def get_nearest_municipal_road(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
+    """Distance to the nearest gmina (municipal) road.
+
+    IMPORTANT CAVEAT: OpenStreetMap does not reliably tag Poland's official
+    road-management category (droga krajowa/wojewódzka/powiatowa/gminna).
+    There is no free, open API that exposes this classification directly
+    either (GUGiK's BDOT10k topographic database — the one dataset that DOES
+    carry this attribute — returns the same "usługa nie udostępnia danych
+    opisowych" non-answer as every other attribute query we tested; see the
+    buildings/GESUT notes above). We therefore use the standard, widely-used
+    OSM tagging convention for Poland as an approximation:
+        highway=unclassified or highway=residential  ->  droga gminna
+        highway=tertiary                              ->  usually powiatowa
+    and fall back to tertiary only if no unclassified/residential road is
+    found nearby, clearly labelling that fallback as such.
+    """
+    centroid = geometry.centroid
+    radius_m = 3000
+    query = (
+        f'[out:json][timeout:25];'
+        f'(way(around:{radius_m},{centroid.y},{centroid.x})'
+        f'["highway"~"^(unclassified|residential)$"];);'
+        f"out tags geom;"
+    )
+    try:
+        data = await _overpass_query(client, query)
+    except Exception as exc:
+        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+
+    fallback_used = False
+    elements = data.get("elements", [])
+    if not elements:
+        fallback_used = True
+        query2 = (
+            f'[out:json][timeout:25];'
+            f'(way(around:{radius_m},{centroid.y},{centroid.x})["highway"="tertiary"];);'
+            f"out tags geom;"
+        )
+        try:
+            data = await _overpass_query(client, query2)
+            elements = data.get("elements", [])
+        except Exception as exc:
+            return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+
+    if not elements:
+        return {
+            "status": "ok", "found": "no",
+            "message": f"Brak dróg w promieniu {radius_m} m w danych OpenStreetMap.",
+        }
+
+    parcel_2180 = shapely_transform(to_2180.transform, geometry)
+
+    best_dist = None
+    best_road = None
+    for el in elements:
+        coords = el.get("geometry", [])
+        if len(coords) < 2:
+            continue
+        line_wgs84 = LineString([(pt["lon"], pt["lat"]) for pt in coords])
+        try:
+            line_2180 = shapely_transform(to_2180.transform, line_wgs84)
+        except Exception:
+            continue
+        dist = parcel_2180.distance(line_2180)
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            tags = el.get("tags", {})
+            best_road = {
+                "name": tags.get("name") or "droga bez nazwy",
+                "ref": tags.get("ref"),
+                "highway_class": tags.get("highway"),
+            }
+
+    if best_dist is None or best_road is None:
+        return {
+            "status": "ok", "found": "no",
+            "message": f"Brak dróg w promieniu {radius_m} m w danych OpenStreetMap.",
+        }
+
+    return {
+        "status": "ok",
+        "found": "yes",
+        "distance_m": round(best_dist),
+        "road_name": best_road["name"],
+        "road_ref": best_road["ref"],
+        "is_fallback_powiatowa": fallback_used,
+        "source": "OpenStreetMap (Overpass API) — przybliżenie na podstawie klasyfikacji highway=unclassified/residential, GUGiK nie udostępnia kategorii zarządzania drogą (gminna/powiatowa) przez żadne otwarte API",
+    }
+
+
 async def check_landslide(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
+    """The 'query' capability is disabled on the individual SOPO feature
+    layers, AND the host's WMSServer GetFeatureInfo endpoint is behind an
+    Incapsula WAF that intermittently blocks plain server-side HTTP requests
+    (both confirmed live). The ArcGIS REST 'identify' operation is enabled
+    and NOT WAF-blocked, and was verified against a known Carpathian
+    landslide polygon, a known-clear control parcel, and the real sample
+    parcel 121507_2.0004.3692/5."""
     rings = [list(coord) for coord in geometry.exterior.coords]
     minx, miny, maxx, maxy = geometry.bounds
     params = {
@@ -666,9 +763,10 @@ async def analyze(parcel_id: str = Query(default="")):
             get_waterways(client, geometry),
             get_flood_zone(client, cx2180, cy2180),
             get_waterlogging_risk(client, geometry),
+            get_nearest_municipal_road(client, geometry),
         )
     (landslide, utilities, cadastre, zoning, buildings,
-     waterways, flood_zone, waterlogging) = results
+     waterways, flood_zone, waterlogging, nearest_road) = results
 
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
@@ -696,6 +794,7 @@ async def analyze(parcel_id: str = Query(default="")):
             "flood_zone": flood_zone,
             "waterlogging": waterlogging,
         },
+        "nearest_road": nearest_road,
         "permits": {"gunb_link": gunb_link},
         "valuation": valuation,
         "map_layers": {
