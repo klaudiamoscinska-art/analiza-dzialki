@@ -305,6 +305,26 @@
     }
     html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
+    // 4b — Odległość do najbliższej drogi gminnej
+    const nr = data.nearest_road;
+    let nrInner = "";
+    if (nr.status === "ok" && nr.found === "yes") {
+      const km = nr.distance_m >= 1000 ? `${(nr.distance_m / 1000).toFixed(2)} km` : `${nr.distance_m} m`;
+      nrInner += `<p style="font-weight:700;font-size:16px;">${km}</p>`;
+      nrInner += `<p class="disclaimer" style="margin-top:2px;">${escapeHTML(nr.road_name)}${
+        nr.road_ref ? " (" + escapeHTML(nr.road_ref) + ")" : ""
+      }</p>`;
+      if (nr.is_fallback_powiatowa) {
+        nrInner += `<p class="disclaimer">Brak drogi gminnej w promieniu wyszukiwania — pokazano najbliższą drogę wyższej kategorii (prawdopodobnie powiatową).</p>`;
+      }
+      nrInner += `<p class="disclaimer">${escapeHTML(nr.source)}</p>`;
+    } else if (nr.status === "ok") {
+      nrInner = `<p>${escapeHTML(nr.message)}</p>`;
+    } else {
+      nrInner = `<p>${escapeHTML(nr.message)}</p>`;
+    }
+    html += `<div class="card muted"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
+
     // 5 — Plany zagospodarowania (MPZP), tabular
     const zon = data.zoning;
     let zonInner = "";
