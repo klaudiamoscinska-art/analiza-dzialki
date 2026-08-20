@@ -129,7 +129,7 @@
   async function runAnalysis() {
     const parcelId = input.value.trim();
     if (!parcelId) {
-      showError("Wpisz numer działki (identyfikator TERYT).");
+      showError("Wpisz nazwę miejscowości i numer działki (albo pełny identyfikator TERYT).");
       return;
     }
 
@@ -138,7 +138,31 @@
     results.innerHTML = "";
 
     try {
-      const resp = await fetch(`/api/analyze?parcel_id=${encodeURIComponent(parcelId)}`);
+      const resolveResp = await fetch(`/api/resolve?query=${encodeURIComponent(parcelId)}`);
+      const resolveData = await resolveResp.json();
+
+      if (!resolveResp.ok) {
+        throw new Error(resolveData.detail || "Nie udało się znaleźć działki.");
+      }
+
+      if (resolveData.resolved) {
+        await analyzeTerytId(resolveData.teryt_id);
+      } else {
+        renderCandidatePicker(resolveData.candidates, parcelId);
+        setLoading(false);
+      }
+    } catch (err) {
+      showError(err.message || "Wystąpił nieoczekiwany błąd.");
+      results.innerHTML = "";
+      setLoading(false);
+    }
+  }
+
+  async function analyzeTerytId(terytId) {
+    setLoading(true);
+    results.innerHTML = "";
+    try {
+      const resp = await fetch(`/api/analyze?parcel_id=${encodeURIComponent(terytId)}`);
       const data = await resp.json();
 
       if (!resp.ok) {
@@ -153,6 +177,26 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  function renderCandidatePicker(candidates, originalQuery) {
+    clearError();
+    const rows = candidates
+      .map(
+        (c, i) => `
+        <button class="candidate-row" data-teryt="${escapeHTML(c.teryt_id)}">
+          <span class="candidate-main">${escapeHTML(c.commune)}, ${escapeHTML(c.county)}</span>
+          <span class="candidate-sub">${escapeHTML(c.voivodeship)} · działka ${escapeHTML(c.parcel_no)}</span>
+        </button>`
+      )
+      .join("");
+    results.innerHTML = `
+      <p class="eyebrow" style="margin-top:4px;">Kilka miejscowości o tej nazwie — wybierz właściwą</p>
+      <div id="candidateList">${rows}</div>`;
+
+    results.querySelectorAll(".candidate-row").forEach((btn) => {
+      btn.addEventListener("click", () => analyzeTerytId(btn.getAttribute("data-teryt")));
+    });
   }
 
   function renderMap(data) {
