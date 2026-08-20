@@ -191,7 +191,7 @@
       )
       .join("");
     results.innerHTML = `
-      <p class="eyebrow" style="margin-top:4px;">Kilka miejscowości o tej nazwie — wybierz właściwą</p>
+      <p class="eyebrow" style="margin-top:4px;">Kilka działek o tym numerze w okolicy — wybierz właściwą</p>
       <div id="candidateList">${rows}</div>`;
 
     results.querySelectorAll(".candidate-row").forEach((btn) => {
