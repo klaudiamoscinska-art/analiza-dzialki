@@ -74,6 +74,7 @@
     .addTo(map);
 
   let parcelLayer = null;
+  let currentCandidates = [];
 
   const input = document.getElementById("parcelInput");
   const clearBtn = document.getElementById("clearBtn");
@@ -136,6 +137,7 @@
     clearError();
     setLoading(true);
     results.innerHTML = "";
+    currentCandidates = [];
 
     try {
       const resolveResp = await fetch(`/api/resolve?query=${encodeURIComponent(parcelId)}`);
@@ -148,7 +150,8 @@
       if (resolveData.resolved) {
         await analyzeTerytId(resolveData.teryt_id);
       } else {
-        renderCandidatePicker(resolveData.candidates, parcelId);
+        currentCandidates = resolveData.candidates;
+        renderCandidatePicker(resolveData.candidates);
         setLoading(false);
       }
     } catch (err) {
@@ -171,15 +174,42 @@
 
       renderMap(data);
       renderResults(data);
+      if (currentCandidates.length > 1) {
+        renderSwitcherBar(terytId);
+      }
     } catch (err) {
       showError(err.message || "Wystąpił nieoczekiwany błąd.");
       results.innerHTML = "";
+      if (currentCandidates.length > 1) {
+        renderSwitcherBar(terytId);
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  function renderCandidatePicker(candidates, originalQuery) {
+  function renderSwitcherBar(activeTeryt) {
+    const chips = currentCandidates
+      .map((c) => {
+        const isActive = c.teryt_id === activeTeryt;
+        return `
+        <button class="switcher-chip${isActive ? " active" : ""}" data-teryt="${escapeHTML(c.teryt_id)}">
+          ${escapeHTML(c.commune)}
+        </button>`;
+      })
+      .join("");
+    const bar = document.createElement("div");
+    bar.id = "switcherBar";
+    bar.innerHTML = `
+      <p class="eyebrow" style="margin:0 0 6px;">Kilka działek o tym numerze — przełącz się</p>
+      <div class="switcher-row">${chips}</div>`;
+    results.insertBefore(bar, results.firstChild);
+    bar.querySelectorAll(".switcher-chip").forEach((btn) => {
+      btn.addEventListener("click", () => analyzeTerytId(btn.getAttribute("data-teryt")));
+    });
+  }
+
+  function renderCandidatePicker(candidates) {
     clearError();
     const rows = candidates
       .map(
