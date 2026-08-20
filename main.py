@@ -802,8 +802,11 @@ async def resolve_parcel(query: str = Query(default="")):
     if not candidates:
         raise HTTPException(
             404,
-            f"Nie znaleziono działki dla '{query}'. Sprawdź nazwę miejscowości i numer działki "
-            "— dla większych miast bywa to nazwa obrębu, nie samego miasta.",
+            f"Nie znaleziono działki dla '{query}'. Numer działki jest unikalny w obrębie "
+            "(precyzyjnej jednostce ewidencyjnej), nie w całej gminie — jeśli gmina obejmuje "
+            "kilka wsi, każda może mieć własny obręb o innej nazwie niż nazwa gminy czy wsi, "
+            "w której mieszkasz. Sprawdź w dokumencie własności lub w EGiB, jak nazywa się "
+            "obręb tej konkretnej działki, i wpisz tę nazwę.",
         )
     if len(candidates) == 1:
         return {"resolved": True, "teryt_id": candidates[0]["teryt_id"]}
