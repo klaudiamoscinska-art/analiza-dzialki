@@ -379,6 +379,38 @@
   .candidate-row:active{ background:#f3f6f4; border-color:var(--survey); }
   .candidate-main{ font-weight:700; font-size:14.5px; color:var(--ink); }
   .candidate-sub{ font-size:12.5px; color:#5b6d67; margin-top:2px; }
+
+  /* ---------- PERSISTENT SWITCHER (after picking a candidate) ---------- */
+  #switcherBar{
+    margin-bottom:14px;
+    padding-bottom:12px;
+    border-bottom:1px dashed var(--line);
+  }
+  .switcher-row{
+    display:flex;
+    gap:6px;
+    overflow-x:auto;
+    padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .switcher-chip{
+    flex:0 0 auto;
+    white-space:nowrap;
+    font-family:var(--sans);
+    font-size:13px;
+    font-weight:600;
+    padding:8px 13px;
+    border-radius:999px;
+    border:1.5px solid var(--line);
+    background:#fff;
+    color:#5b6d67;
+    cursor:pointer;
+  }
+  .switcher-chip.active{
+    border-color:var(--survey);
+    background:var(--survey);
+    color:#fff;
+  }
 </style>
 </head>
 <body>
