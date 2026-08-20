@@ -251,6 +251,49 @@ def _parse_feature_info_table(raw_html: str) -> list[dict[str, str]]:
     return rows_out
 
 
+async def uldk_search_candidates(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
+    """Lightweight lookup (no geometry) used by /api/resolve for the
+    'type a place name + parcel number' flow. ULDK's GetParcelByIdOrNr
+    natively supports free-text 'ObrębName Numer' search and — confirmed
+    live — returns ALL matches with their gmina/powiat/województwo when the
+    name exists in more than one place in Poland (e.g. 'Wola 1' matches 5
+    different villages), which is exactly the disambiguation data we need."""
+    params = {
+        "request": "GetParcelByIdOrNr",
+        "id": query,
+        "result": "id,voivodeship,county,commune,parcel",
+        "srid": "4326",
+    }
+    resp = await client.get(ULDK_URL, params=params)
+    resp.raise_for_status()
+    lines = [ln for ln in resp.text.strip().split("\n") if ln != ""]
+    if not lines:
+        return []
+    first = lines[0].strip()
+    if first.startswith("-1") or first == "0":
+        return []
+    try:
+        count = int(first)
+        data_lines = lines[1 : 1 + count] if count >= 1 else []
+    except ValueError:
+        data_lines = [first]
+
+    candidates = []
+    for line in data_lines:
+        fields = [f.strip() for f in line.split("|")]
+        if len(fields) < 5:
+            continue
+        teryt_id, voivodeship, county, commune, parcel_no = fields[:5]
+        candidates.append({
+            "teryt_id": teryt_id,
+            "voivodeship": voivodeship,
+            "county": county,
+            "commune": commune,
+            "parcel_no": parcel_no,
+        })
+    return candidates
+
+
 async def uldk_get_parcel(client: httpx.AsyncClient, parcel_id: str) -> dict[str, Any]:
     params = {
         "request": "GetParcelByIdOrNr",
@@ -279,7 +322,7 @@ async def uldk_get_parcel(client: httpx.AsyncClient, parcel_id: str) -> dict[str
     if not data_line:
         raise HTTPException(404, f"Brak danych geometrii dla '{parcel_id}'.")
 
-    fields = data_line.split("|")
+    fields = [f.strip() for f in data_line.split("|")]
     if len(fields) < 6:
         raise HTTPException(502, f"Nieoczekiwany format odpowiedzi ULDK: {data_line}")
 
@@ -736,6 +779,35 @@ def estimate_value(area_m2: float, voivodeship_code: Optional[str], buildings: l
             "value_pln": buildings_value,
         } if buildings else None,
     }
+
+
+@app.get("/api/resolve")
+async def resolve_parcel(query: str = Query(default="")):
+    """Given free text like 'Limanowa 123' or a full TERYT id, returns either
+    a single resolved match (frontend proceeds straight to /api/analyze) or a
+    list of candidates to disambiguate (frontend shows a picker) when the
+    place name exists in more than one gmina. NOTE: some larger towns are
+    subdivided into several numbered cadastral precincts (obręby) whose
+    names don't match the plain town name — for those, searching by the
+    town name alone will correctly return "not found"; the exact precinct
+    name is needed (this is a real property of the Polish cadastre, not a
+    limitation of this lookup)."""
+    query = query.strip()
+    if len(query) < 3:
+        raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
+        candidates = await uldk_search_candidates(client, query)
+
+    if not candidates:
+        raise HTTPException(
+            404,
+            f"Nie znaleziono działki dla '{query}'. Sprawdź nazwę miejscowości i numer działki "
+            "— dla większych miast bywa to nazwa obrębu, nie samego miasta.",
+        )
+    if len(candidates) == 1:
+        return {"resolved": True, "teryt_id": candidates[0]["teryt_id"]}
+    return {"resolved": False, "candidates": candidates}
 
 
 @app.get("/api/analyze")
