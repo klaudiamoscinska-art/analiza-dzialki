@@ -251,6 +251,93 @@ def _parse_feature_info_table(raw_html: str) -> list[dict[str, str]]:
     return rows_out
 
 
+GEOCODER_URL = "https://capap.gugik.gov.pl/api/fts/gc/pkt"
+MAX_OBREB_SCAN = 40
+
+
+async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list[dict[str, str]]:
+    """Resolves a plain gmina/place name to its gmina TERYT code(s) using
+    GUGiK's own official free-text geocoding API (capap.gugik.gov.pl/api/fts —
+    confirmed live, free for commercial/non-commercial use). Querying the
+    structured 'gm_nazwa' field (rather than free-text 'miejsc_nazwa') targets
+    the gmina level specifically — confirmed live: 'gm_nazwa=Milówka' finds
+    the real Gmina Milówka (śląskie), while a free-text search for the same
+    string can instead match an unrelated same-named village in a different
+    gmina (Milówka, a village inside Gmina Wojnicz)."""
+    try:
+        resp = await client.post(
+            GEOCODER_URL, json={"reqs": [{"gm_nazwa": name}]}, timeout=15.0
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    seen: dict[str, dict[str, str]] = {}
+    for group in data:
+        for item in group.get("others", []) or ([group.get("single")] if group.get("single") else []):
+            if not item:
+                continue
+            gmina_teryt = item.get("teryt")
+            if not gmina_teryt or len(gmina_teryt) != 7:
+                continue
+            if gmina_teryt not in seen:
+                seen[gmina_teryt] = {
+                    "gmina_teryt": gmina_teryt,
+                    "gmina_prefix": f"{gmina_teryt[:6]}_{gmina_teryt[6]}",
+                    "gm_nazwa": item.get("gm_nazwa", ""),
+                    "pow_nazwa": item.get("pow_nazwa", ""),
+                    "woj_nazwa": item.get("woj_nazwa", ""),
+                }
+    return list(seen.values())
+
+
+async def scan_gmina_obreby_for_parcel(
+    client: httpx.AsyncClient, gmina_prefix: str, parcel_no: str
+) -> list[dict[str, str]]:
+    """Brute-force scan across a gmina's cadastral precincts (obręby) for a
+    given parcel number. Parcel numbers are unique only within a single
+    obręb, not across a whole gmina, but a gmina rarely has more than a
+    couple dozen obręby, so scanning all of them concurrently for one
+    specific number is fast and reliable — this is the mechanism that
+    resolves cases like 'Milówka 2994/4' where the parcel is actually
+    registered under a different village's obręb (here: 'Laliki') within
+    the same gmina."""
+
+    async def try_obreb(n: int) -> Optional[dict[str, str]]:
+        obreb_id = f"{gmina_prefix}.{n:04d}.{parcel_no}"
+        try:
+            params = {
+                "request": "GetParcelById",
+                "id": obreb_id,
+                "result": "id,voivodeship,county,commune,region,parcel",
+                "srid": "4326",
+            }
+            resp = await client.get(ULDK_URL, params=params, timeout=10.0)
+            resp.raise_for_status()
+            lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
+            # Confirmed live format: line 1 is "0" (found) or "-1 ..." (not found);
+            # when found, line 2 holds the pipe-delimited data.
+            if len(lines) < 2 or lines[0].strip() != "0":
+                return None
+            fields = [f.strip() for f in lines[1].split("|")]
+            if len(fields) < 6:
+                return None
+            teryt_id, voivodeship, county, commune, region, p_no = fields[:6]
+            return {
+                "teryt_id": teryt_id,
+                "voivodeship": voivodeship,
+                "county": county,
+                "commune": f"{commune} (obręb {region})",
+                "parcel_no": p_no,
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[try_obreb(n) for n in range(1, MAX_OBREB_SCAN + 1)])
+    return [r for r in results if r is not None]
+
+
 async def uldk_search_candidates(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
     """Lightweight lookup (no geometry) used by /api/resolve for the
     'type a place name + parcel number' flow. ULDK's GetParcelByIdOrNr
@@ -785,13 +872,17 @@ def estimate_value(area_m2: float, voivodeship_code: Optional[str], buildings: l
 async def resolve_parcel(query: str = Query(default="")):
     """Given free text like 'Limanowa 123' or a full TERYT id, returns either
     a single resolved match (frontend proceeds straight to /api/analyze) or a
-    list of candidates to disambiguate (frontend shows a picker) when the
-    place name exists in more than one gmina. NOTE: some larger towns are
-    subdivided into several numbered cadastral precincts (obręby) whose
-    names don't match the plain town name — for those, searching by the
-    town name alone will correctly return "not found"; the exact precinct
-    name is needed (this is a real property of the Polish cadastre, not a
-    limitation of this lookup)."""
+    list of candidates to disambiguate (frontend shows a picker).
+
+    Two-stage lookup:
+      1. Direct ULDK free-text 'ObrębName Numer' search (exact obręb name).
+      2. If that finds nothing AND the query looks like 'Name Number': treat
+         "Name" as a gmina/village name, resolve it to gmina TERYT code(s)
+         via GUGiK's official geocoder (capap.gugik.gov.pl), then brute-force
+         scan every obręb in that gmina for the given parcel number. This is
+         what resolves cases like 'Milówka 2994/4', where the parcel is
+         actually registered under a neighbouring village's obręb ('Laliki')
+         within the same gmina — confirmed live."""
     query = query.strip()
     if len(query) < 3:
         raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
@@ -799,14 +890,24 @@ async def resolve_parcel(query: str = Query(default="")):
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
         candidates = await uldk_search_candidates(client, query)
 
+        if not candidates and " " in query:
+            name_part, parcel_part = query.rsplit(" ", 1)
+            name_part = name_part.strip()
+            if name_part and parcel_part:
+                gminas = await geocode_gmina_candidates(client, name_part)
+                scan_results = await asyncio.gather(
+                    *[scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part) for g in gminas]
+                )
+                for hits in scan_results:
+                    candidates.extend(hits)
+
     if not candidates:
         raise HTTPException(
             404,
-            f"Nie znaleziono działki dla '{query}'. Numer działki jest unikalny w obrębie "
-            "(precyzyjnej jednostce ewidencyjnej), nie w całej gminie — jeśli gmina obejmuje "
-            "kilka wsi, każda może mieć własny obręb o innej nazwie niż nazwa gminy czy wsi, "
-            "w której mieszkasz. Sprawdź w dokumencie własności lub w EGiB, jak nazywa się "
-            "obręb tej konkretnej działki, i wpisz tę nazwę.",
+            f"Nie znaleziono działki dla '{query}'. Sprawdzono dokładną nazwę obrębu oraz "
+            "przeszukano wszystkie obręby gminy o tej nazwie (jeśli taka gmina istnieje) — "
+            "działka o tym numerze nie została znaleziona w żadnym z nich. Sprawdź numer "
+            "działki i nazwę miejscowości.",
         )
     if len(candidates) == 1:
         return {"resolved": True, "teryt_id": candidates[0]["teryt_id"]}
