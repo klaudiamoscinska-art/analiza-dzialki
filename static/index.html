@@ -360,6 +360,25 @@
   .value-card.secondary .eyebrow{ color:var(--survey); }
   .value-card.secondary .amount{ color:var(--ink); }
   .value-card.secondary .breakdown{ color:#5b6d67; }
+
+  /* ---------- CANDIDATE PICKER (place-name disambiguation) ---------- */
+  .candidate-row{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    width:100%;
+    text-align:left;
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:10px;
+    padding:12px 14px;
+    margin-bottom:8px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  .candidate-row:active{ background:#f3f6f4; border-color:var(--survey); }
+  .candidate-main{ font-weight:700; font-size:14.5px; color:var(--ink); }
+  .candidate-sub{ font-size:12.5px; color:#5b6d67; margin-top:2px; }
 </style>
 </head>
 <body>
@@ -375,7 +394,7 @@
 
     <div class="input-row">
       <input id="parcelInput" type="text" inputmode="text" autocomplete="off"
-             placeholder="np. 141201_1.0001.6509" />
+             placeholder="np. Limanowa 123 lub 141201_1.0001.6509" />
       <button id="clearBtn" aria-label="Wyczyść">✕</button>
     </div>
 
