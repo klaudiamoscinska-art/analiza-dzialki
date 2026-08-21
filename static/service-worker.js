@@ -1,9 +1,14 @@
 // Minimalny service worker — wymagany przez Chrome/Android, aby aplikację
 // można było zainstalować na ekranie głównym ("Add to Home Screen").
-// Cache'uje tylko powłokę aplikacji (HTML/JS/ikony); dane z /api/analyze
-// NIE są cache'owane, bo muszą być zawsze świeże.
+// Dane z /api/analyze NIE są cache'owane, bo muszą być zawsze świeże.
+//
+// WAŻNE: strategia "network-first" (nie "cache-first"). Wcześniejsza wersja
+// serwowała cache w pierwszej kolejności, więc zaktualizowany app.js/index.html
+// wdrożony na serwerze mógł nigdy nie dotrzeć do przeglądarki, dopóki cache
+// nie wygasł ręcznie. Teraz zawsze próbujemy najpierw sieci — cache służy
+// wyłącznie jako awaryjny fallback, gdy urządzenie jest offline.
 
-const CACHE_NAME = "analiza-dzialki-v1";
+const CACHE_NAME = "analiza-dzialki-v2";
 const APP_SHELL = [
   "/",
   "/static/app.js",
@@ -37,15 +42,12 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-      );
-    })
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
