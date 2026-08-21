@@ -426,14 +426,6 @@
         <a class="link-out-btn" href="${data.permits.gunb_link}" target="_blank" rel="noopener noreferrer">Sprawdź w rejestrze GUNB →</a>
       </div>`;
 
-    // 6b — Ogólna wyszukiwarka ofert sprzedaży (link-out, użytkownik ustawia parametry sam)
-    html += `
-      <div class="card muted">
-        <h3>Oferty sprzedaży — wyszukiwarka</h3>
-        <p>Żaden rejestr rządowy nie zawiera informacji, czy działka jest wystawiona na sprzedaż — to dane rynkowe. Link poniżej otwiera ogólną wyszukiwarkę działek, która przeszukuje wiele portali naraz (Otodom, OLX, Gratka, Morizon i inne) — samodzielnie ustaw lokalizację i pozostałe filtry.</p>
-        <a class="link-out-btn" href="${data.market_listings.otodom_link}" target="_blank" rel="noopener noreferrer">Otwórz wyszukiwarkę działek →</a>
-      </div>`;
-
     // 7 — Wycena statystyczna (land + buildings, split)
     const val = data.valuation;
     if (val.status === "ok") {
