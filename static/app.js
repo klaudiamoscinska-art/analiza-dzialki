@@ -426,6 +426,14 @@
         <a class="link-out-btn" href="${data.permits.gunb_link}" target="_blank" rel="noopener noreferrer">Sprawdź w rejestrze GUNB →</a>
       </div>`;
 
+    // 6b — Oferty sprzedaży w okolicy (link-out, nie dopasowane do tej konkretnej działki)
+    html += `
+      <div class="card muted">
+        <h3>Oferty sprzedaży w okolicy</h3>
+        <p>Żaden rejestr rządowy nie zawiera informacji, czy działka jest wystawiona na sprzedaż — to dane rynkowe. Link poniżej pokazuje oferty działek w tej gminie na Otodom, ale nie ma pewności dopasowania do konkretnie tej działki.</p>
+        <a class="link-out-btn" href="${data.market_listings.otodom_link}" target="_blank" rel="noopener noreferrer">Zobacz oferty w gminie na Otodom →</a>
+      </div>`;
+
     // 7 — Wycena statystyczna (land + buildings, split)
     const val = data.valuation;
     if (val.status === "ok") {
