@@ -151,17 +151,6 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
 # search UI is CAPTCHA-protected. We only offer a deep link, never scraped data.
 GUNB_SEARCH_URL = "https://wyszukiwarka.gunb.gov.pl/"
 
-
-def get_property_search_link() -> str:
-    """A general, blank real-estate meta-search link, NOT scoped to this
-    parcel's location — the person sets all their own parameters (location,
-    price, area, etc.) on the destination site. Confirmed live: Trovit
-    (mieszkania.trovit.pl) is a genuine meta-search engine that aggregates
-    listings from many individual portals (Otodom, OLX, Gratka, Morizon,
-    nieruchomosci-online.pl and others) into one set of results, rather than
-    being a single portal's own listings."""
-    return "https://mieszkania.trovit.pl/dzialka"
-
 HTTP_TIMEOUT = 20.0
 
 OSM_BUILDING_LABELS: dict[str, str] = {
@@ -958,7 +947,6 @@ async def analyze(parcel_id: str = Query(default="")):
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
     gunb_link = get_gunb_link(parcel["parcel_no"])
-    otodom_link = get_property_search_link()
 
     return {
         "parcel": {
@@ -984,7 +972,6 @@ async def analyze(parcel_id: str = Query(default="")):
         },
         "nearest_road": nearest_road,
         "permits": {"gunb_link": gunb_link},
-        "market_listings": {"otodom_link": otodom_link},
         "valuation": valuation,
         "map_layers": {
             "egib": {"url": KIEG_URL, "layers": "dzialki,numery_dzialek,budynki"},
