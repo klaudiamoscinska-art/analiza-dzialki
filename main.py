@@ -151,33 +151,16 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
 # search UI is CAPTCHA-protected. We only offer a deep link, never scraped data.
 GUNB_SEARCH_URL = "https://wyszukiwarka.gunb.gov.pl/"
 
-_PL_DIACRITICS = str.maketrans({
-    "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n",
-    "ó": "o", "ś": "s", "ź": "z", "ż": "z",
-    "Ą": "a", "Ć": "c", "Ę": "e", "Ł": "l", "Ń": "n",
-    "Ó": "o", "Ś": "s", "Ź": "z", "Ż": "z",
-})
 
-
-def _slugify_pl(text: str) -> str:
-    text = text.strip().translate(_PL_DIACRITICS).lower()
-    text = re.sub(r"^(powiat|gmina|miasto)\s+", "", text)
-    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
-    return text
-
-
-def get_otodom_link(voivodeship: str, county: str, commune: str) -> str:
-    """Link-out only, matching the same approach as the GUNB permits card: no
-    scraping, no fabricated listing data. Otodom's search results use a
-    hierarchical location path (województwo/powiat/gmina) confirmed live —
-    we deliberately stop at gmina level (not the specific village/obręb),
-    since going more specific risks a slug mismatch between the cadastral
-    obręb name and Otodom's own place-name database; gmina level reliably
-    resolves and still meaningfully narrows the search to the parcel's area."""
-    parts = [_slugify_pl(voivodeship), _slugify_pl(county), _slugify_pl(commune)]
-    parts = [p for p in parts if p]
-    path = "/".join(parts)
-    return f"https://www.otodom.pl/pl/wyniki/sprzedaz/dzialka/{path}"
+def get_property_search_link() -> str:
+    """A general, blank real-estate meta-search link, NOT scoped to this
+    parcel's location — the person sets all their own parameters (location,
+    price, area, etc.) on the destination site. Confirmed live: Trovit
+    (mieszkania.trovit.pl) is a genuine meta-search engine that aggregates
+    listings from many individual portals (Otodom, OLX, Gratka, Morizon,
+    nieruchomosci-online.pl and others) into one set of results, rather than
+    being a single portal's own listings."""
+    return "https://mieszkania.trovit.pl/dzialka"
 
 HTTP_TIMEOUT = 20.0
 
@@ -975,7 +958,7 @@ async def analyze(parcel_id: str = Query(default="")):
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
     gunb_link = get_gunb_link(parcel["parcel_no"])
-    otodom_link = get_otodom_link(parcel["voivodeship_name"], parcel["county"], parcel["commune"])
+    otodom_link = get_property_search_link()
 
     return {
         "parcel": {
