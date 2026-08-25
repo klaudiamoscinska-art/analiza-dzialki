@@ -842,6 +842,20 @@ def get_gunb_link(parcel_no: str) -> str:
     return f"{GUNB_SEARCH_URL}?ew_parcel={last_segment}"
 
 
+def get_geoportal_link(teryt_id: str) -> str:
+    """Deep link to the specific parcel on Polska mapa / Geoportal Krajowy.
+    Confirmed live: the modern 'imapnext' viewer no longer supports this
+    (identifyParcel is absent from its current JS bundle — dead parameter,
+    confirmed by inspecting the live main.js), but the older, still-live
+    'imap' viewer at mapy.geoportal.gov.pl/imap/ DOES actively handle it —
+    confirmed by finding the actual handling code
+    (`checkParametersExist()` checking `url.indexOf("identifyparcel")`)
+    directly in that page's live inline script. This matches GUGiK's own
+    2018 official announcement of this exact feature
+    (mapy.geoportal.gov.pl/imap/?identifyParcel=<TERYT_ID>)."""
+    return f"https://mapy.geoportal.gov.pl/imap/?identifyParcel={teryt_id}"
+
+
 def estimate_value(area_m2: float, voivodeship_code: Optional[str], buildings: list[dict]) -> dict[str, Any]:
     price = GUS_PRICE_PER_M2.get(voivodeship_code) if voivodeship_code else None
     if price is None:
@@ -947,6 +961,7 @@ async def analyze(parcel_id: str = Query(default="")):
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
     gunb_link = get_gunb_link(parcel["parcel_no"])
+    geoportal_link = get_geoportal_link(parcel["teryt_id"])
 
     return {
         "parcel": {
@@ -956,6 +971,7 @@ async def analyze(parcel_id: str = Query(default="")):
             "commune": parcel["commune"],
             "parcel_no": parcel["parcel_no"],
             "multiple_found": parcel["multiple_found"],
+            "geoportal_link": geoportal_link,
         },
         "geometry_geojson": mapping(geometry),
         "centroid": {"lat": centroid.y, "lon": centroid.x},
