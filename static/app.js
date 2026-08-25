@@ -273,6 +273,10 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
+    if (p.geoportal_link) {
+      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="margin-bottom:14px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
+    }
+
     // 1 — Ewidencja gruntów i budynków
     const cad = data.cadastre;
     const bld = data.buildings;
