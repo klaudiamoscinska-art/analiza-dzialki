@@ -871,6 +871,16 @@ def get_geoportal_link(teryt_id: str) -> str:
     return f"https://mapy.geoportal.gov.pl/imap/?identifyParcel={teryt_id}"
 
 
+def get_emapa_link(teryt_id: str) -> str:
+    """Deep link to the specific parcel on polska.e-mapa.net (Geo-System's
+    portal, independent of GUGiK's own geoportal). Confirmed via the site's
+    own live 'share view' feature — screenshotted by the user, generating
+    exactly 'https://polska.e-mapa.net?identifyParcel=<TERYT_ID>' — and
+    separately verified live (HTTP 200, no redirect) for our own test
+    parcel."""
+    return f"https://polska.e-mapa.net?identifyParcel={teryt_id}"
+
+
 def estimate_value(area_m2: float, voivodeship_code: Optional[str], buildings: list[dict]) -> dict[str, Any]:
     price = GUS_PRICE_PER_M2.get(voivodeship_code) if voivodeship_code else None
     if price is None:
@@ -977,6 +987,7 @@ async def analyze(parcel_id: str = Query(default="")):
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
     gunb_link = get_gunb_link(parcel["parcel_no"])
     geoportal_link = get_geoportal_link(parcel["teryt_id"])
+    emapa_link = get_emapa_link(parcel["teryt_id"])
 
     return {
         "parcel": {
@@ -987,6 +998,7 @@ async def analyze(parcel_id: str = Query(default="")):
             "parcel_no": parcel["parcel_no"],
             "multiple_found": parcel["multiple_found"],
             "geoportal_link": geoportal_link,
+            "emapa_link": emapa_link,
         },
         "geometry_geojson": mapping(geometry),
         "centroid": {"lat": centroid.y, "lon": centroid.x},
