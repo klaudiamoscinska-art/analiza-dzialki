@@ -273,8 +273,12 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
+    if (p.emapa_link) {
+      html += `<a class="link-out-btn" href="${p.emapa_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska.e-mapa.net →</a>`;
+    }
+
     if (p.geoportal_link) {
-      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="margin-bottom:14px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
+      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:14px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
     }
 
     // 1 — Ewidencja gruntów i budynków
