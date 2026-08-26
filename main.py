@@ -203,6 +203,21 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def no_cache_api_responses(request, call_next):
+    """Confirmed live bug: without an explicit no-store header, some mobile
+    browsers cache GET /api/analyze and /api/resolve responses (keyed by the
+    exact query string), so re-visiting the same parcel after a backend
+    change can silently serve a stale cached JSON body missing new fields —
+    even though the live server itself already returns the new data. API
+    responses must never be cached; only /static/ files should be."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
+
+
 geod = Geod(ellps="WGS84")
 to_2180 = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
 
