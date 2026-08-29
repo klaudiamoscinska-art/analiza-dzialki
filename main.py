@@ -270,6 +270,99 @@ GEOCODER_URL = "https://capap.gugik.gov.pl/api/fts/gc/pkt"
 MAX_OBREB_SCAN = 40
 
 
+async def geocode_address_points(client: httpx.AsyncClient, query: str, max_results: int = 15) -> list[dict[str, Any]]:
+    """Free-text address search (street + number + city) using the same
+    official GUGiK geocoder as the gmina lookup above — confirmed live with
+    the generic 'q' field, e.g. 'Kraków Floriańska 5' resolves to an exact
+    address point with coordinates. An ambiguous query (e.g. a common street
+    name with no city) returns many candidates instead of one 'single' match;
+    we cap how many we follow up on to keep the response fast."""
+    try:
+        resp = await client.post(GEOCODER_URL, json={"reqs": [{"q": query}]}, timeout=15.0)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    points: list[dict[str, Any]] = []
+    for group in data:
+        items = group.get("others") or ([group.get("single")] if group.get("single") else [])
+        for item in items:
+            if not item:
+                continue
+            geom = item.get("geometry", {})
+            coords = geom.get("coordinates")
+            if not coords or len(coords) != 2:
+                continue
+            points.append({
+                "lon": coords[0],
+                "lat": coords[1],
+                "description": item.get("shortDesc") or item.get("desc") or query,
+            })
+            if len(points) >= max_results:
+                break
+        if len(points) >= max_results:
+            break
+    return points
+
+
+async def find_parcel_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -> Optional[dict[str, str]]:
+    """Given coordinates, finds the cadastral parcel at that point via ULDK's
+    GetParcelByXY — the same official service used everywhere else in this
+    app, just a different lookup mode."""
+    try:
+        params = {
+            "request": "GetParcelByXY",
+            "xy": f"{lon},{lat},4326",
+            "result": "id,voivodeship,county,commune,parcel",
+            "srid": "4326",
+        }
+        resp = await client.get(ULDK_URL, params=params)
+        resp.raise_for_status()
+        lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
+        if len(lines) < 2 or lines[0].strip() != "0":
+            return None
+        fields = [f.strip() for f in lines[1].split("|")]
+        if len(fields) < 5:
+            return None
+        teryt_id, voivodeship, county, commune, parcel_no = fields[:5]
+        return {
+            "teryt_id": teryt_id,
+            "voivodeship": voivodeship,
+            "county": county,
+            "commune": commune,
+            "parcel_no": parcel_no,
+        }
+    except Exception:
+        return None
+
+
+async def resolve_address_to_parcels(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
+    """Full pipeline: free-text address -> geocoded point(s) -> parcel(s) at
+    those point(s), deduplicated by TERYT id. Each candidate's 'commune'
+    field is annotated with the matched address text, since multiple
+    geocoded points can resolve to the same or different parcels and the
+    person needs to tell them apart in the picker."""
+    address_points = await geocode_address_points(client, query)
+    if not address_points:
+        return []
+
+    parcels = await asyncio.gather(
+        *[find_parcel_by_xy(client, p["lon"], p["lat"]) for p in address_points]
+    )
+
+    seen: dict[str, dict[str, str]] = {}
+    for point, parcel in zip(address_points, parcels):
+        if not parcel:
+            continue
+        teryt_id = parcel["teryt_id"]
+        if teryt_id not in seen:
+            parcel = dict(parcel)
+            parcel["commune"] = f"{parcel['commune']} ({point['description']})"
+            seen[teryt_id] = parcel
+    return list(seen.values())
+
+
 async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list[dict[str, str]]:
     """Resolves a plain gmina/place name to its gmina TERYT code(s) using
     GUGiK's own official free-text geocoding API (capap.gugik.gov.pl/api/fts —
@@ -930,6 +1023,32 @@ async def try_numbered_precinct_variants(
     for hits in results:
         combined.extend(hits)
     return combined
+
+
+@app.get("/api/resolve-address")
+async def resolve_address(query: str = Query(default="")):
+    """Search by street address (e.g. 'Kraków, Floriańska 5') instead of by
+    place name + parcel number. Same response shape as /api/resolve (single
+    resolved match, or a list of candidates to disambiguate), so the
+    frontend reuses the exact same picker/switcher UI — just fed from a
+    different, address-based lookup path (geocode -> GetParcelByXY) rather
+    than the name+number -> obręb path."""
+    query = query.strip()
+    if len(query) < 5:
+        raise HTTPException(400, "Podaj adres (miejscowość, ulica i numer).")
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
+        candidates = await resolve_address_to_parcels(client, query)
+
+    if not candidates:
+        raise HTTPException(
+            404,
+            f"Nie znaleziono działki dla adresu '{query}'. Sprawdź pisownię miejscowości i ulicy, "
+            "i podaj numer domu — samo miasto lub sama ulica bez numeru może dać zbyt wiele wyników.",
+        )
+    if len(candidates) == 1:
+        return {"resolved": True, "teryt_id": candidates[0]["teryt_id"]}
+    return {"resolved": False, "candidates": candidates}
 
 
 @app.get("/api/resolve")
