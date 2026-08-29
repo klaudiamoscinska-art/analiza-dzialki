@@ -84,6 +84,12 @@
   const results = document.getElementById("results");
   const errorBox = document.getElementById("errorBox");
 
+  const addressInput = document.getElementById("addressInput");
+  const addressClearBtn = document.getElementById("addressClearBtn");
+  const addressCheckBtn = document.getElementById("addressCheckBtn");
+  const addressSpinner = document.getElementById("addressSpinner");
+  const addressBtnLabel = document.getElementById("addressBtnLabel");
+
   clearBtn.addEventListener("click", () => {
     input.value = "";
     input.focus();
@@ -94,6 +100,23 @@
   });
 
   checkBtn.addEventListener("click", runAnalysis);
+
+  addressClearBtn.addEventListener("click", () => {
+    addressInput.value = "";
+    addressInput.focus();
+  });
+
+  addressInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runAddressSearch();
+  });
+
+  addressCheckBtn.addEventListener("click", runAddressSearch);
+
+  function setAddressLoading(isLoading) {
+    addressCheckBtn.disabled = isLoading;
+    addressSpinner.classList.toggle("on", isLoading);
+    addressBtnLabel.textContent = isLoading ? "Sprawdzanie…" : "Sprawdź adres";
+  }
 
   function setLoading(isLoading) {
     checkBtn.disabled = isLoading;
@@ -161,8 +184,42 @@
     }
   }
 
-  async function analyzeTerytId(terytId) {
-    setLoading(true);
+  async function runAddressSearch() {
+    const address = addressInput.value.trim();
+    if (!address) {
+      showError("Wpisz adres (miejscowość, ulica i numer).");
+      return;
+    }
+
+    clearError();
+    setAddressLoading(true);
+    results.innerHTML = "";
+    currentCandidates = [];
+
+    try {
+      const resolveResp = await fetch(`/api/resolve-address?query=${encodeURIComponent(address)}`);
+      const resolveData = await resolveResp.json();
+
+      if (!resolveResp.ok) {
+        throw new Error(resolveData.detail || "Nie udało się znaleźć działki pod tym adresem.");
+      }
+
+      if (resolveData.resolved) {
+        await analyzeTerytId(resolveData.teryt_id, setAddressLoading);
+      } else {
+        currentCandidates = resolveData.candidates;
+        renderCandidatePicker(resolveData.candidates);
+        setAddressLoading(false);
+      }
+    } catch (err) {
+      showError(err.message || "Wystąpił nieoczekiwany błąd.");
+      results.innerHTML = "";
+      setAddressLoading(false);
+    }
+  }
+
+  async function analyzeTerytId(terytId, loadingSetter = setLoading) {
+    loadingSetter(true);
     results.innerHTML = "";
     try {
       const resp = await fetch(`/api/analyze?parcel_id=${encodeURIComponent(terytId)}`);
@@ -184,7 +241,10 @@
         renderSwitcherBar(terytId);
       }
     } finally {
+      // Zawsze resetuj oba przyciski — działka mogła być znaleziona przez
+      // dowolną z dwóch wyszukiwarek (numer działki albo adres).
       setLoading(false);
+      setAddressLoading(false);
     }
   }
 
