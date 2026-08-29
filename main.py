@@ -907,13 +907,38 @@ def estimate_value(area_m2: float, voivodeship_code: Optional[str], buildings: l
     }
 
 
+async def try_numbered_precinct_variants(
+    client: httpx.AsyncClient, name: str, parcel_no: str, max_n: int = 20
+) -> list[dict[str, str]]:
+    """Some larger towns are split into several numbered cadastral precincts
+    named '{Town}-{n}' (confirmed live: Bochnia is split into 'Bochnia-1'
+    through at least 'Bochnia-9'; the city itself has NO obręb literally
+    named just 'Bochnia' — ULDK returns zero results for that). This doesn't
+    depend on the gmina geocoder at all (which has a separate, confirmed gap:
+    it fails to surface single-city gminas like 'Miasto Bochnia' for a bare
+    gmina-name query) — it just tries the naming pattern directly against
+    ULDK's own free-text obręb search, which already returns full multi-match
+    candidate data on its own."""
+    async def try_variant(n: int) -> list[dict[str, str]]:
+        try:
+            return await uldk_search_candidates(client, f"{name}-{n} {parcel_no}")
+        except Exception:
+            return []
+
+    results = await asyncio.gather(*[try_variant(n) for n in range(1, max_n + 1)])
+    combined: list[dict[str, str]] = []
+    for hits in results:
+        combined.extend(hits)
+    return combined
+
+
 @app.get("/api/resolve")
 async def resolve_parcel(query: str = Query(default="")):
     """Given free text like 'Limanowa 123' or a full TERYT id, returns either
     a single resolved match (frontend proceeds straight to /api/analyze) or a
     list of candidates to disambiguate (frontend shows a picker).
 
-    Two-stage lookup:
+    Three-stage lookup:
       1. Direct ULDK free-text 'ObrębName Numer' search (exact obręb name).
       2. If that finds nothing AND the query looks like 'Name Number': treat
          "Name" as a gmina/village name, resolve it to gmina TERYT code(s)
@@ -921,7 +946,11 @@ async def resolve_parcel(query: str = Query(default="")):
          scan every obręb in that gmina for the given parcel number. This is
          what resolves cases like 'Milówka 2994/4', where the parcel is
          actually registered under a neighbouring village's obręb ('Laliki')
-         within the same gmina — confirmed live."""
+         within the same gmina — confirmed live.
+      3. If that STILL finds nothing: try the '{Name}-{n}' numbered-precinct
+         naming pattern directly via ULDK (see try_numbered_precinct_variants)
+         — this is what resolves cases like 'Bochnia 6312/1', a city whose
+         own gmina isn't surfaced by the geocoder used in stage 2 at all."""
     query = query.strip()
     if len(query) < 3:
         raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
@@ -939,6 +968,9 @@ async def resolve_parcel(query: str = Query(default="")):
                 )
                 for hits in scan_results:
                     candidates.extend(hits)
+
+                if not candidates:
+                    candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
 
     if not candidates:
         raise HTTPException(
