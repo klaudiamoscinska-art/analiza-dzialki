@@ -118,6 +118,135 @@
     addressBtnLabel.textContent = isLoading ? "Sprawdzanie…" : "Sprawdź adres";
   }
 
+  // ---------- Zakładki ----------
+  const tabBtnAnaliza = document.getElementById("tabBtnAnaliza");
+  const tabBtnSzukaj = document.getElementById("tabBtnSzukaj");
+  const tabAnaliza = document.getElementById("tabAnaliza");
+  const tabSzukaj = document.getElementById("tabSzukaj");
+
+  function showTab(name) {
+    const analizaActive = name === "analiza";
+    tabBtnAnaliza.classList.toggle("active", analizaActive);
+    tabBtnSzukaj.classList.toggle("active", !analizaActive);
+    tabAnaliza.classList.toggle("active", analizaActive);
+    tabSzukaj.classList.toggle("active", !analizaActive);
+  }
+
+  tabBtnAnaliza.addEventListener("click", () => showTab("analiza"));
+  tabBtnSzukaj.addEventListener("click", () => showTab("szukaj"));
+
+  // ---------- Szukaj działki po rozmiarze ----------
+  const sizeSearchPlace = document.getElementById("sizeSearchPlace");
+  const sizeSearchPlaceClearBtn = document.getElementById("sizeSearchPlaceClearBtn");
+  const sizeSearchArea = document.getElementById("sizeSearchArea");
+  const sizeSearchBtn = document.getElementById("sizeSearchBtn");
+  const sizeSearchSpinner = document.getElementById("sizeSearchSpinner");
+  const sizeSearchBtnLabel = document.getElementById("sizeSearchBtnLabel");
+  const sizeSearchErrorBox = document.getElementById("sizeSearchErrorBox");
+  const sizeSearchResultsEl = document.getElementById("sizeSearchResults");
+
+  sizeSearchPlaceClearBtn.addEventListener("click", () => {
+    sizeSearchPlace.value = "";
+    sizeSearchPlace.focus();
+  });
+
+  function setSizeSearchLoading(isLoading) {
+    sizeSearchBtn.disabled = isLoading;
+    sizeSearchSpinner.classList.toggle("on", isLoading);
+    sizeSearchBtnLabel.textContent = isLoading ? "Szukam…" : "Szukaj działek";
+  }
+
+  function showSizeSearchError(message) {
+    sizeSearchErrorBox.textContent = message;
+    sizeSearchErrorBox.style.display = "block";
+  }
+
+  function clearSizeSearchError() {
+    sizeSearchErrorBox.style.display = "none";
+    sizeSearchErrorBox.textContent = "";
+  }
+
+  async function runSizeSearch() {
+    const place = sizeSearchPlace.value.trim();
+    const area = sizeSearchArea.value.trim();
+
+    if (!place) {
+      showSizeSearchError("Wpisz nazwę miejscowości.");
+      return;
+    }
+    if (!area || Number(area) <= 0) {
+      showSizeSearchError("Podaj szukaną powierzchnię działki w m² (liczba większa od zera).");
+      return;
+    }
+
+    clearSizeSearchError();
+    setSizeSearchLoading(true);
+    sizeSearchResultsEl.innerHTML = "";
+
+    try {
+      const resp = await fetch(
+        `/api/search-by-size?place=${encodeURIComponent(place)}&area_m2=${encodeURIComponent(area)}`
+      );
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.detail || "Nie udało się przeszukać tej okolicy.");
+      }
+
+      renderSizeSearchResults(data, Number(area));
+    } catch (err) {
+      showSizeSearchError(err.message || "Wystąpił nieoczekiwany błąd.");
+      sizeSearchResultsEl.innerHTML = "";
+    } finally {
+      setSizeSearchLoading(false);
+    }
+  }
+
+  function renderSizeSearchResults(data, targetArea) {
+    if (!data.matches || data.matches.length === 0) {
+      sizeSearchResultsEl.innerHTML = `<div class="empty-hint">Nie znaleziono żadnej działki o zbliżonym rozmiarze (±10% od ${targetArea} m²) w promieniu ok. 2 km od "${escapeHTML(
+        data.search_center || ""
+      )}". Sprawdzono ${data.candidates_checked || 0} działek w okolicy.</div>`;
+      return;
+    }
+
+    const rows = data.matches
+      .map((m) => {
+        const isNegative = m.diff_pct < 0;
+        const diffLabel = `${isNegative ? "" : "+"}${m.diff_pct}%`;
+        return `
+        <button class="size-result-row" data-teryt="${escapeHTML(m.teryt_id)}">
+          <span>
+            <span class="size-result-main">~${fmtArea(m.area_m2)}</span>
+            <span class="size-result-sub">${escapeHTML(m.commune)}, ${escapeHTML(m.county)}</span>
+          </span>
+          <span class="size-result-diff${isNegative ? " negative" : ""}">${diffLabel}</span>
+        </button>`;
+      })
+      .join("");
+
+    sizeSearchResultsEl.innerHTML = `
+      <p class="disclaimer" style="margin:0 0 10px;">Sprawdzono ${data.candidates_checked} działek w okolicy „${escapeHTML(
+      data.search_center || ""
+    )}" — poniżej ${data.matches.length} najbardziej zbliżonych do ${targetArea} m², od najbliższej.</p>
+      ${rows}`;
+
+    sizeSearchResultsEl.querySelectorAll(".size-result-row").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        showTab("analiza");
+        currentCandidates = [];
+        await analyzeTerytId(btn.getAttribute("data-teryt"));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+  }
+
+  sizeSearchArea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runSizeSearch();
+  });
+
+  sizeSearchBtn.addEventListener("click", runSizeSearch);
+
   function setLoading(isLoading) {
     checkBtn.disabled = isLoading;
     spinner.classList.toggle("on", isLoading);
