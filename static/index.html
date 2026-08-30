@@ -228,7 +228,7 @@
     line-height:1.6;
   }
 
-  #errorBox{
+  .error-box{
     display:none;
     background:var(--danger-bg);
     color:var(--danger);
@@ -237,6 +237,88 @@
     font-size:14px;
     margin-bottom:12px;
   }
+
+  /* ---------- TABS ---------- */
+  .tab-bar{
+    display:flex;
+    gap:6px;
+    margin-bottom:16px;
+    border-bottom:1px solid var(--line);
+  }
+  .tab-btn{
+    flex:1;
+    background:none;
+    border:none;
+    padding:10px 4px 12px;
+    font-family:var(--sans);
+    font-weight:700;
+    font-size:14px;
+    color:#8a9a95;
+    border-bottom:3px solid transparent;
+    margin-bottom:-1px;
+  }
+  .tab-btn.active{
+    color:var(--survey);
+    border-bottom-color:var(--survey);
+  }
+  .tab-content{ display:none; }
+  .tab-content.active{ display:block; }
+
+  /* ---------- SIZE-SEARCH RESULTS ---------- */
+  #sizeSearchResults .empty-hint{
+    text-align:center;
+    color:#8a9a95;
+    font-size:13px;
+    padding:14px 4px;
+  }
+  .size-result-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    width:100%;
+    text-align:left;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:12px 14px;
+    margin-bottom:8px;
+    font-family:var(--sans);
+  }
+  .size-result-row:active{ background:#f3f6f4; border-color:var(--survey); }
+  .size-result-main{ font-weight:700; font-size:14.5px; color:var(--ink); }
+  .size-result-sub{ display:block; font-size:12px; color:#5b6d67; margin-top:2px; }
+  .size-result-diff{
+    flex:0 0 auto;
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:700;
+    padding:4px 8px;
+    border-radius:6px;
+    background:var(--ok-bg);
+    color:var(--ok);
+  }
+  .size-result-diff.negative{ background:#fdf0e4; color:#a35d1f; }
+
+  .filter-row{ margin-bottom:0; }
+  .filter-label{
+    display:block;
+    font-size:12.5px;
+    font-weight:600;
+    color:#5b6d67;
+    margin-bottom:6px;
+  }
+  .filter-row input{
+    width:100%;
+    padding:11px 12px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    font-size:15px;
+    font-family:var(--sans);
+    background:#fbfcfb;
+    color:var(--ink);
+  }
+  .filter-row input:focus{ outline:none; border-color:var(--survey); }
 
   .teryt-echo{
     font-family:var(--mono);
@@ -422,39 +504,78 @@
   </div>
 
   <div id="panel">
-    <p class="eyebrow">Analiza działki</p>
-
-    <div class="input-row">
-      <input id="parcelInput" type="text" inputmode="text" autocomplete="off"
-             placeholder="np. Limanowa 123 lub 141201_1.0001.6509" />
-      <button id="clearBtn" aria-label="Wyczyść">✕</button>
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabBtnAnaliza" type="button">Analiza działki</button>
+      <button class="tab-btn" id="tabBtnSzukaj" type="button">Szukaj działki</button>
     </div>
 
-    <button id="checkBtn">
-      <span id="btnLabel">Sprawdź działkę</span>
-      <span class="spinner" id="spinner"></span>
-    </button>
+    <div id="tabAnaliza" class="tab-content active">
+      <p class="eyebrow">Analiza działki</p>
 
-    <p class="eyebrow" style="margin-top:18px;">albo szukaj po adresie</p>
+      <div class="input-row">
+        <input id="parcelInput" type="text" inputmode="text" autocomplete="off"
+               placeholder="np. Limanowa 123 lub 141201_1.0001.6509" />
+        <button id="clearBtn" aria-label="Wyczyść">✕</button>
+      </div>
 
-    <div class="input-row">
-      <input id="addressInput" type="text" inputmode="text" autocomplete="off"
-             placeholder="np. Kraków, Floriańska 5" />
-      <button id="addressClearBtn" aria-label="Wyczyść">✕</button>
+      <button id="checkBtn">
+        <span id="btnLabel">Sprawdź działkę</span>
+        <span class="spinner" id="spinner"></span>
+      </button>
+
+      <p class="eyebrow" style="margin-top:18px;">albo szukaj po adresie</p>
+
+      <div class="input-row">
+        <input id="addressInput" type="text" inputmode="text" autocomplete="off"
+               placeholder="np. Kraków, Floriańska 5" />
+        <button id="addressClearBtn" aria-label="Wyczyść">✕</button>
+      </div>
+
+      <button id="addressCheckBtn">
+        <span id="addressBtnLabel">Sprawdź adres</span>
+        <span class="spinner" id="addressSpinner"></span>
+      </button>
+
+      <div id="errorBox" class="error-box"></div>
+      <div id="results">
+        <div id="placeholder">
+          Wpisz identyfikator TERYT działki (lub "obręb numer"),<br/>
+          aby zobaczyć ewidencję gruntów i budynków, zagrożenia<br/>
+          osuwiskowe, media, hydrologię, plany zagospodarowania,<br/>
+          pozwolenia na budowę oraz szacunkową wartość gruntu i budynków.
+        </div>
+      </div>
     </div>
 
-    <button id="addressCheckBtn">
-      <span id="addressBtnLabel">Sprawdź adres</span>
-      <span class="spinner" id="addressSpinner"></span>
-    </button>
+    <div id="tabSzukaj" class="tab-content">
+      <p class="eyebrow">Szukaj działki po rozmiarze</p>
+      <p class="disclaimer" style="margin:0 0 12px;">
+        Podaj miejscowość i szukaną powierzchnię — pokażemy do 10 realnych
+        działek w tej okolicy o zbliżonym rozmiarze (±10%), od najbardziej do
+        najmniej podobnej.
+      </p>
 
-    <div id="errorBox"></div>
-    <div id="results">
-      <div id="placeholder">
-        Wpisz identyfikator TERYT działki (lub "obręb numer"),<br/>
-        aby zobaczyć ewidencję gruntów i budynków, zagrożenia<br/>
-        osuwiskowe, media, hydrologię, plany zagospodarowania,<br/>
-        pozwolenia na budowę oraz szacunkową wartość gruntu i budynków.
+      <div class="input-row">
+        <input id="sizeSearchPlace" type="text" inputmode="text" autocomplete="off"
+               placeholder="np. Zakopane" />
+        <button id="sizeSearchPlaceClearBtn" aria-label="Wyczyść">✕</button>
+      </div>
+
+      <div class="filter-row" style="margin:10px 0;">
+        <label class="filter-label" for="sizeSearchArea">Szukana powierzchnia (m²)</label>
+        <input id="sizeSearchArea" type="number" inputmode="numeric" placeholder="np. 1200" />
+      </div>
+
+      <button id="sizeSearchBtn">
+        <span id="sizeSearchBtnLabel">Szukaj działek</span>
+        <span class="spinner" id="sizeSearchSpinner"></span>
+      </button>
+
+      <div id="sizeSearchErrorBox" class="error-box"></div>
+      <div id="sizeSearchResults">
+        <div class="empty-hint">
+          Podaj miejscowość i powierzchnię, aby zobaczyć listę najbardziej zbliżonych działek.
+        </div>
       </div>
     </div>
   </div>
@@ -462,6 +583,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>
