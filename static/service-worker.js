@@ -8,7 +8,7 @@
 // nie wygasł ręcznie. Teraz zawsze próbujemy najpierw sieci — cache służy
 // wyłącznie jako awaryjny fallback, gdy urządzenie jest offline.
 
-const CACHE_NAME = "analiza-dzialki-v2";
+const CACHE_NAME = "analiza-dzialki-v3";
 const APP_SHELL = [
   "/",
   "/static/app.js",
