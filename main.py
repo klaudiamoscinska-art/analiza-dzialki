@@ -42,6 +42,7 @@ import asyncio
 import io
 import json
 import re
+import xml.etree.ElementTree as ET
 from typing import Any, Optional
 
 import httpx
@@ -335,6 +336,173 @@ async def find_parcel_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -
         }
     except Exception:
         return None
+
+
+async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -> Optional[dict[str, Any]]:
+    """Same as find_parcel_by_xy, but also fetches geometry and computes the
+    authoritative geodesic area (m^2) — same calculation method used by the
+    main /api/analyze endpoint, so area figures are consistent across the
+    whole app regardless of which search path found the parcel."""
+    try:
+        params = {
+            "request": "GetParcelByXY",
+            "xy": f"{lon},{lat},4326",
+            "result": "id,voivodeship,county,commune,parcel,geom_wkt",
+            "srid": "4326",
+        }
+        resp = await client.get(ULDK_URL, params=params)
+        resp.raise_for_status()
+        lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
+        if len(lines) < 2 or lines[0].strip() != "0":
+            return None
+        fields = [f.strip() for f in lines[1].split("|")]
+        if len(fields) < 6:
+            return None
+        teryt_id, voivodeship, county, commune, parcel_no, geom_raw = fields[:6]
+        geometry = _parse_uldk_geometry(geom_raw)
+        area_m2, _ = geod.geometry_area_perimeter(geometry)
+        return {
+            "teryt_id": teryt_id,
+            "voivodeship": voivodeship,
+            "county": county,
+            "commune": commune,
+            "parcel_no": parcel_no,
+            "area_m2": abs(area_m2),
+        }
+    except Exception:
+        return None
+
+
+# --------------------------------------------------------------------------
+# "Szukaj działki" — search by locality + target size, ±10% tolerance
+# --------------------------------------------------------------------------
+#
+# WARNING — the piece below (WFS bulk enumeration) was written and last
+# tested against the official aggregated national EGiB WFS service
+# (https://mapy.geoportal.gov.pl/wss/service/PZGIK/EGIB/WFS/UslugaZbiorcza)
+# during a LIVE OUTAGE of that service (confirmed: "msPostGISLayerOpen():
+# Query error. Database connection failed" — reproduced identically for two
+# unrelated locations and both its feature types, i.e. a genuine GUGiK-side
+# infrastructure problem, not a bug in this code). Because of that outage:
+#   - GML parsing here relies ONLY on the standard, namespace-qualified
+#     gml:posList element (geometry), which is spec-standard and independent
+#     of this specific service's own custom attribute schema — deliberately
+#     avoiding any dependency on field names I could not confirm live via
+#     DescribeFeatureType.
+#   - The exact BBOX axis order (x,y vs y,x for EPSG:2180 in WFS 2.0) could
+#     NOT be confirmed live either way (the outage masked both orderings
+#     with the identical DB error) — x,y is used here to match this app's
+#     other EPSG:2180 usage, but may need swapping once the service is back.
+#   - Per-parcel identity and the authoritative area figure do NOT depend on
+#     the WFS response at all — they come from ULDK's GetParcelByXY (the
+#     same well-tested service used throughout this app), using the WFS
+#     response only to discover WHERE candidate parcels are.
+
+EGIB_WFS_URL = "https://mapy.geoportal.gov.pl/wss/service/PZGIK/EGIB/WFS/UslugaZbiorcza"
+GML_NS = "{http://www.opengis.net/gml/3.2}"
+
+
+async def enumerate_parcel_points_in_area(
+    client: httpx.AsyncClient, x_2180: float, y_2180: float, radius_m: float = 2000.0, max_features: int = 500
+) -> list[tuple[float, float]]:
+    """Queries the aggregated national EGiB WFS for all parcel geometries
+    within a square area around a point, returning one representative
+    (lon, lat) point per parcel geometry found (a safe interior point, not
+    just the vertex average, so it reliably lands inside the polygon when
+    handed to ULDK's GetParcelByXY)."""
+    bbox = f"{x_2180-radius_m},{y_2180-radius_m},{x_2180+radius_m},{y_2180+radius_m},urn:ogc:def:crs:EPSG::2180"
+    params = {
+        "Service": "WFS",
+        "Version": "2.0.0",
+        "Request": "GetFeature",
+        "TypeNames": "ms:dzialki",
+        "BBOX": bbox,
+        "count": str(max_features),
+    }
+    resp = await client.get(EGIB_WFS_URL, params=params, timeout=45.0)
+    resp.raise_for_status()
+    if "ExceptionReport" in resp.text[:500]:
+        raise RuntimeError("Usługa WFS EGiB zwróciła błąd (prawdopodobnie niedostępna dla tego obszaru).")
+
+    root = ET.fromstring(resp.text)
+    points: list[tuple[float, float]] = []
+    to_4326 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+
+    for pos_list_el in root.iter(f"{GML_NS}posList"):
+        raw = (pos_list_el.text or "").split()
+        if len(raw) < 6:  # need at least 3 points (6 numbers) for a polygon
+            continue
+        try:
+            nums = [float(v) for v in raw]
+        except ValueError:
+            continue
+        coords_2180 = list(zip(nums[0::2], nums[1::2]))
+        try:
+            poly = shape({"type": "Polygon", "coordinates": [coords_2180]})
+            if not poly.is_valid or poly.area == 0:
+                continue
+            rp = poly.representative_point()
+            lon, lat = to_4326.transform(rp.x, rp.y)
+            points.append((lon, lat))
+        except Exception:
+            continue
+    return points
+
+
+async def search_parcels_by_size(
+    client: httpx.AsyncClient, place_query: str, target_area_m2: float, tolerance: float = 0.10, max_results: int = 10
+) -> dict[str, Any]:
+    """Full pipeline for the 'Szukaj działki' tab: geocode the place name to
+    a representative point, enumerate candidate parcel points in a practical
+    radius around it via WFS, resolve each to an authoritative parcel+area
+    via ULDK, filter to within ±tolerance of the target area, and return the
+    closest matches first."""
+    address_points = await geocode_address_points(client, place_query, max_results=3)
+    if not address_points:
+        return {"status": "error", "message": f"Nie znaleziono miejscowości '{place_query}'."}
+
+    anchor = address_points[0]
+    x_2180, y_2180 = to_2180.transform(anchor["lon"], anchor["lat"])
+
+    try:
+        candidate_points = await enumerate_parcel_points_in_area(client, x_2180, y_2180)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": f"Usługa WFS EGiB (wykaz działek w okolicy) jest obecnie niedostępna: {exc}",
+        }
+
+    if not candidate_points:
+        return {"status": "ok", "matches": [], "candidates_checked": 0}
+
+    parcels = await asyncio.gather(
+        *[find_parcel_with_area_by_xy(client, lon, lat) for lon, lat in candidate_points]
+    )
+
+    seen: dict[str, dict[str, Any]] = {}
+    for parcel in parcels:
+        if not parcel:
+            continue
+        teryt_id = parcel["teryt_id"]
+        if teryt_id not in seen:
+            seen[teryt_id] = parcel
+
+    min_area = target_area_m2 * (1 - tolerance)
+    max_area = target_area_m2 * (1 + tolerance)
+    matches = [p for p in seen.values() if min_area <= p["area_m2"] <= max_area]
+    matches.sort(key=lambda p: abs(p["area_m2"] - target_area_m2))
+    matches = matches[:max_results]
+
+    for m in matches:
+        m["diff_pct"] = round((m["area_m2"] - target_area_m2) / target_area_m2 * 100, 1)
+        m["area_m2"] = round(m["area_m2"], 1)
+
+    return {
+        "status": "ok",
+        "matches": matches,
+        "candidates_checked": len(seen),
+        "search_center": anchor["description"],
+    }
 
 
 async def resolve_address_to_parcels(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
@@ -1023,6 +1191,27 @@ async def try_numbered_precinct_variants(
     for hits in results:
         combined.extend(hits)
     return combined
+
+
+@app.get("/api/search-by-size")
+async def search_by_size(place: str = Query(default=""), area_m2: float = Query(default=0)):
+    """'Szukaj działki' tab: given a locality name and a target area (m²),
+    finds up to 10 real parcels in that locality whose area is within ±10%
+    of the target, closest match first. See search_parcels_by_size for the
+    full pipeline and an important note about a live WFS outage encountered
+    while building this."""
+    place = place.strip()
+    if len(place) < 2:
+        raise HTTPException(400, "Podaj nazwę miejscowości.")
+    if area_m2 <= 0:
+        raise HTTPException(400, "Podaj docelową powierzchnię działki (w m²), większą od zera.")
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
+        result = await search_parcels_by_size(client, place, area_m2)
+
+    if result["status"] != "ok":
+        raise HTTPException(502, result["message"])
+    return result
 
 
 @app.get("/api/resolve-address")
