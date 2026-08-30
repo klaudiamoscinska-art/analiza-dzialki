@@ -1,0 +1,2276 @@
+{
+ "1206": {
+  "url": "https://wms.powiat.krakow.pl:1518/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2471": {
+  "url": "https://wms.sip.piekary.pl/piekary-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2061": {
+  "url": "https://webewid-wms.um.bialystok.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0213": {
+  "url": "https://milicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2402": {
+  "url": "https://bielski-ows.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0220": {
+  "url": "https://trzebnicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1811": {
+  "url": "https://mielec.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3003": {
+  "url": "https://wms.geodezjagniezno.pl/gniezno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3030": {
+  "url": "https://wms.wrzesnia.powiat.pl/wrzesnia-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1465": {
+  "url": "https://wms2.um.warszawa.pl/geoserver/wfs/wfs",
+  "version": "2.0.0",
+  "layer": "wfs:dzialki",
+  "epsg_ok": true
+ },
+ "0809": {
+  "url": "https://giportal.powiat-zielonogorski.pl/zielonagora-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1437": {
+  "url": "https://zuromin-powiat.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1606": {
+  "url": "https://iegib.namyslow.pl/cgi-bin/namyslow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2403": {
+  "url": "https://cieszyn.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "121304_3": {
+  "url": "https://kety.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2002": {
+  "url": "https://bialystok.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2601": {
+  "url": "https://geodezja.powiat.busko.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0464": {
+  "url": "https://geoportal.wloclawek.eu/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0808": {
+  "url": "https://giportal2.powiat.swiebodzin.pl/swiebodzin-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0216": {
+  "url": "https://polkowicki-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2472": {
+  "url": "https://rudaslaska.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3019": {
+  "url": "https://ikerg.powiat.pila.pl/pila-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1661": {
+  "url": "https://wms.um.opole.pl/opole-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1809": {
+  "url": "https://lubaczow.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1817": {
+  "url": "https://sanocki.webewid.pl:8443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1814": {
+  "url": "https://sip.powiatprzeworsk.pl:4443/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1802": {
+  "url": "https://brzozowski.webewid.pl:4443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1601": {
+  "url": "https://imapa.brzeg-powiat.pl/brzeg-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1605": {
+  "url": "https://ikerg.powiatkrapkowicki.pl/krapkowice-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3002": {
+  "url": "https://wms.czarnkowsko-trzcianecki.pl/czarnkowskotrzcianecki-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0811": {
+  "url": "https://zary.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1861": {
+  "url": "https://krosno-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1609": {
+  "url": "https://geodezja.powiatopolski.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "1604": {
+  "url": "https://ikerg.powiatkluczborski.eu/kluczbork-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1813": {
+  "url": "https://powiat-przemysl.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0462": {
+  "url": "https://geoportal.grudziadz.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "2408": {
+  "url": "https://mapa.mikolowski.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2479": {
+  "url": "https://geoportal.zory.pl/usluga/iip/wfs/geodezja",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "2469": {
+  "url": "https://emapa.katowice.eu/arcgis/services/wms_egib_gugik/MapServer/WFSServer",
+  "version": "2.0.0",
+  "layer": "wms_egib_gugik:dzialki",
+  "epsg_ok": false
+ },
+ "1815": {
+  "url": "https://spropczyce.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1819": {
+  "url": "https://strzyzowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1608": {
+  "url": "https://giportal.powiatoleski.pl/olesno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1818": {
+  "url": "https://stalowawola.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2661": {
+  "url": "https://wms.kielce.eu/kielce-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1801": {
+  "url": "https://bieszczadzki-wms.webewid.pl:4434/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0410": {
+  "url": "https://nakielski.webewid.pl:62627/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1812": {
+  "url": "https://powiat-nisko.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0403": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/0403",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0461": {
+  "url": "https://e-uslugi.mpg.bydgoszcz.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "0414": {
+  "url": "https://wms.csw.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2213": {
+  "url": "https://wms.powiatstarogard.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1602": {
+  "url": "https://ikerg.powiatglubczycki.pl/cgi-bin/glubczyce-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0419": {
+  "url": "https://zninski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0405": {
+  "url": "https://golubsko-dobrzynski-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1820": {
+  "url": "https://tarnobrzeski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0261": {
+  "url": "https://geoportal.jeleniagora.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "0416": {
+  "url": "https://tucholski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3006": {
+  "url": "https://ikerg.powiat-jarocinski.pl/jarocin-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0411": {
+  "url": "https://radziejow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3025": {
+  "url": "https://wms.powiatsredzki.pl/srodawlkp-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1863": {
+  "url": "https://osrodek.erzeszow.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0408": {
+  "url": "https://lipno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2812": {
+  "url": "https://powiat-nowomiejski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0463": {
+  "url": "https://mtorun-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1804": {
+  "url": "https://jaroslawski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2607": {
+  "url": "https://ostrowiec.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1810": {
+  "url": "https://lancut.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2611": {
+  "url": "https://starachowice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2803": {
+  "url": "https://powiatdzialdowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0412": {
+  "url": "http://rypin.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0404": {
+  "url": "https://chelminski.webewid.pl:44316/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0417": {
+  "url": "https://wabrzezno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1607": {
+  "url": "https://wms-egib.powiat.nysa.pl/nysa-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3020": {
+  "url": "https://wms.geo.net.pl/pleszew-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1808": {
+  "url": "https://lezajsk.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0206": {
+  "url": "https://wms.podgik.jgora.pl/jeleniagora-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2463": {
+  "url": "https://e-odgik.chorzow.eu/arcgis/services/wfs/chorzow_egib_publ/MapServer/WFSServer",
+  "version": "2.0.0",
+  "layer": "wfs_chorzow_egib_publ:dzialki",
+  "epsg_ok": false
+ },
+ "1610": {
+  "url": "https://ikerg2.powiatprudnicki.pl/prudnik-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1412": {
+  "url": "https://wms.epodgik.pl/cgi-bin/minsk",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3021": {
+  "url": "https://ikerg.podgik.poznan.pl/wms-poznanski",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3215": {
+  "url": "https://szczecinecki-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0409": {
+  "url": "https://mogilenski.webewid.pl:4444/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2811": {
+  "url": "https://powiatnidzicki.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0862": {
+  "url": "https://imapa.um.zielona-gora.pl/zielona-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1805": {
+  "url": "https://jasielski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2605": {
+  "url": "https://konskie.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2461": {
+  "url": "https://ikerg.bielsko-biala.pl/bielsko-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1806": {
+  "url": "https://kolbuszowa.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1816": {
+  "url": "https://powiatrzeszowski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0210": {
+  "url": "https://iegib.powiatluban.pl/luban-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1611": {
+  "url": "https://mapy.powiatstrzelecki.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "1204": {
+  "url": "https://dabrowski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0406": {
+  "url": "https://wms.powiatgrudziadzki.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0402": {
+  "url": "https://mapa.brodnica.com.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3061": {
+  "url": "https://ikerg.um.kalisz.pl/kalisz-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1421": {
+  "url": "https://wms.epodgik.pl/cgi-bin/pruszkow",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0663": {
+  "url": "https://gis.lublin.eu/opendata/wfs",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1807": {
+  "url": "https://krosnienski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2808": {
+  "url": "https://powiatketrzynski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0604": {
+  "url": "https://hrubieszow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1202": {
+  "url": "https://brzesko.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0661": {
+  "url": "http://bialapodlaska.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2411": {
+  "url": "https://raciborz.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2263": {
+  "url": "https://wms.slupsk.eu/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2477": {
+  "url": "https://geowms.umtychy.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0223": {
+  "url": "https://wms.wrosip.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0219": {
+  "url": "https://swidnicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1862": {
+  "url": "https://przemysl.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0264": {
+  "url": "https://iwms.zgkikm.wroc.pl/wroclaw-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1212": {
+  "url": "https://olkuski.webewid.pl:4434/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3064": {
+  "url": "https://portal.geopoz.poznan.pl/wmsegib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0262": {
+  "url": "https://wms.legnica.eu/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1219": {
+  "url": "https://wielicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1006": {
+  "url": "https://lodzkiwschodni.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0215": {
+  "url": "https://ewid.starostwo.olawa.pl:4444/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1419": {
+  "url": "https://powiat-plock.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1015": {
+  "url": "https://powiat-skierniewice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2814": {
+  "url": "https://powiatolsztynski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1001": {
+  "url": "http://belchatow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1218": {
+  "url": "https://wadowicki.webewid.pl:20443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2815": {
+  "url": "https://ostroda.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2806": {
+  "url": "https://wms.epodgik.pl/cgi-bin/gizycko",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0418": {
+  "url": "https://wloclawek.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0614": {
+  "url": "https://pulawy.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2817": {
+  "url": "http://szczytno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3213": {
+  "url": "https://slawienski.webewid.pl:4443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3001": {
+  "url": "https://wms-geo.powiat-chodzieski.pl/chodziez-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0804": {
+  "url": "https://wms.powiat-nowosolski.pl/nowasol-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2818": {
+  "url": "https://powiatgoldap.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1203": {
+  "url": "https://chrzanowski.webewid.pl:22443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2810": {
+  "url": "https://wms.epodgik.pl/cgi-bin/mragowo",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2014": {
+  "url": "https://powiatzambrowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2807": {
+  "url": "https://ilawa.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2805": {
+  "url": "https://powiatelk.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2861": {
+  "url": "https://wms.geodezja.elblag.eu/elblag-wms",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2819": {
+  "url": "https://wms.epodgik.pl/cgi-bin/wegorzewo",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0225": {
+  "url": "https://iegib.powiat.zgorzelec.pl/zgorzelec-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0608": {
+  "url": "https://powiatlubartowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2606": {
+  "url": "http://opatow.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2802": {
+  "url": "https://powiat-braniewo.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2414": {
+  "url": "https://sbl.webewid.pl:8443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3218": {
+  "url": "https://wms.powiatlobeski.pl/lobez-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3204": {
+  "url": "https://goleniowski.webewid.pl:6443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0413": {
+  "url": "https://sepolenski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2801": {
+  "url": "https://powiatbartoszyce.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2476": {
+  "url": "https://swietochlowice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0610": {
+  "url": "https://leczna.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2813": {
+  "url": "http://olecko.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2462": {
+  "url": "https://iwms.um.bytom.pl/bytom-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3217": {
+  "url": "https://walecki.webewid.pl:4434/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2262": {
+  "url": "https://pc73.miasto.gdynia.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2212": {
+  "url": "https://wms.powiat.slupsk.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2465": {
+  "url": "https://geoportal-wms.dg.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0662": {
+  "url": "https://wms.epodgik.pl/cgi-bin/mchelm",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3203": {
+  "url": "https://drawski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2610": {
+  "url": "http://skarzysko.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1004": {
+  "url": "https://leczycki.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0609": {
+  "url": "https://powiatlubelski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2809": {
+  "url": "https://powiatlidzbarski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0612": {
+  "url": "https://opolelubelskie.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0401": {
+  "url": "https://mapa.aleksandrow.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1217": {
+  "url": "https://tatrzanski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1603": {
+  "url": "https://ikerg.geo.powiat.kedzierzyn-kozle.pl/kedzierzynkozle-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0212": {
+  "url": "https://ikerg.powiatlwowecki.pl/lwowekslaski-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3214": {
+  "url": "https://ikerg2.powiatstargardzki.eu/stargard-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3201": {
+  "url": "https://bialogardzki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2609": {
+  "url": "https://sandomierz.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3209": {
+  "url": "https://koszalinski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3009": {
+  "url": "https://ikerg.starostwokolskie.pl/powiatkolski-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3263": {
+  "url": "https://geo-wms.um.swinoujscie.pl/swinoujscie",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0207": {
+  "url": "https://wms.kamienna-gora.pl/kamiennagora-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1408": {
+  "url": "http://powiat-legionowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3212": {
+  "url": "https://ikerg.pyrzyce.pl/pyrzyce-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1213": {
+  "url": "https://oswiecimski.webewid.pl:4422/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1432": {
+  "url": "https://wms.pwz.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3262": {
+  "url": "https://wms.e-osrodek.szczecin.pl/szczecin-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0201": {
+  "url": "https://geoportal.powiatboleslawiecki.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "2409": {
+  "url": "https://imapa.powiatmyszkowski.pl/myszkow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0222": {
+  "url": "https://wolowski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0806": {
+  "url": "https://fsd.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0810": {
+  "url": "https://zaganski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2467": {
+  "url": "https://jastrzebie.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3013": {
+  "url": "https://leszczynski.webewid.pl:543/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0801": {
+  "url": "https://powiatgorzowski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3202": {
+  "url": "https://ikerg.geopowiatchoszczno.pl/choszczno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1463": {
+  "url": "https://ikerg.modgik.radom.pl/radom-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3017": {
+  "url": "https://ikerg.powiat-ostrowski.pl/ostrow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3208": {
+  "url": "https://kolobrzeski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2007": {
+  "url": "https://lomzynski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0606": {
+  "url": "https://powiatkrasnostawski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3014": {
+  "url": "https://wms.epodgik.pl/cgi-bin/miedzychod",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1061": {
+  "url": "https://igeodeta.log.lodz.pl/cgi-bin/lodz-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0226": {
+  "url": "https://wms.powiat-zlotoryja.pl/zlotoryja-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1404": {
+  "url": "https://gostynin.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3022": {
+  "url": "https://ikerg.powiatrawicki.pl/rawicz-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2413": {
+  "url": "https://geodane.tarnogorski.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3062": {
+  "url": "https://ikerg.kosit.konin.eu/konin-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1864": {
+  "url": "https://tarnobrzeg.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3010": {
+  "url": "http://konin.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3012": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/3012",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0620": {
+  "url": "https://powiatzamojski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3007": {
+  "url": "https://kalisz.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3029": {
+  "url": "https://ikerg.powiatwolsztyn.pl/wolsztyn-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1427": {
+  "url": "https://sierpc.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1428": {
+  "url": "https://sochaczew.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2214": {
+  "url": "https://wms.powiat.tczew.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3023": {
+  "url": "https://ikerg.powiat-slupca.pl/slupca-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2478": {
+  "url": "https://wms.miastozabrze.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2466": {
+  "url": "https://wmswfs-geodezja.gliwice.eu/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3024": {
+  "url": "https://wms.szamotuly.com.pl/szamotuly-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0605": {
+  "url": "https://janow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1803": {
+  "url": "https://debica.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2604": {
+  "url": "https://geoportal.powiat.kielce.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3026": {
+  "url": "https://wms.powiat-srem.pl/srem-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3027": {
+  "url": "https://iegib.powiat.turek.pl/cgi-bin/turek_egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3005": {
+  "url": "https://ikerg.pgw.pl/grodziskwlkp-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3015": {
+  "url": "https://wms.powiatnowotomyski.pl/nowytomysl-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0209": {
+  "url": "https://legnicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2473": {
+  "url": "https://geodeta.gpue.rybnik.eu/rybnik-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2612": {
+  "url": "https://staszow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1438": {
+  "url": "https://ikerg.powiat-zyrardowski.pl/zyrardow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3261": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/3261",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2862": {
+  "url": "https://webewidwms.olsztyn.eu/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2202": {
+  "url": "https://chojnicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3063": {
+  "url": "https://imapa.leszno.pl/mleszno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2474": {
+  "url": "https://siemianowice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1414": {
+  "url": "http://nowodworski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1420": {
+  "url": "https://plonski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1422": {
+  "url": "https://przasnysz.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1005": {
+  "url": "http://lowicz.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0218": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/0218",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1435": {
+  "url": "http://powiat-wyszkowski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1405": {
+  "url": "https://imapa.podgik-grodziskm.pl/grodziski-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1821": {
+  "url": "https://lesko.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0203": {
+  "url": "https://glogow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1063": {
+  "url": "https://skierniewice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1007": {
+  "url": "https://opoczno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0202": {
+  "url": "https://geoportal.pow.dzierzoniow.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "3031": {
+  "url": "https://ikerg.zlotow-powiat.pl/zlotow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2210": {
+  "url": "https://nowodworski.webewid.pl:4444/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2415": {
+  "url": "https://imapa.powiatwodzislawski.pl/wodzislaw-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2009": {
+  "url": "https://sejny.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1464": {
+  "url": "https://siedlce.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1424": {
+  "url": "https://powiatpultuski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1425": {
+  "url": "https://radom.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3008": {
+  "url": "https://ikerg.powiatkepno.pl/kepno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3028": {
+  "url": "https://ikerg.wagrowiec.pl/wagrowiec-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2816": {
+  "url": "https://powiatpiski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0208": {
+  "url": "https://geoportal.powiat.klodzko.pl/ggp",
+  "version": "2.0.0",
+  "layer": "dzialki",
+  "epsg_ok": false
+ },
+ "3210": {
+  "url": "https://wms.powiatmysliborski.com.pl/mysliborz-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0211": {
+  "url": "https://lubinski-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0205": {
+  "url": "https://jawor.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1416": {
+  "url": "https://ostrowmaz.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2264": {
+  "url": "https://wms.um.sopot.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3016": {
+  "url": "https://ikerg.powiatobornicki.pl/oborniki-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3004": {
+  "url": "https://imapa.powiat.gostyn.pl/gostyn-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1205": {
+  "url": "https://gorlicki.webewid.pl:4443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0214": {
+  "url": "https://olesnicki.webewid.pl:4444/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2215": {
+  "url": "https://wms.epodgik.pl/cgi-bin/wejherowo",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "3211": {
+  "url": "https://wgkik.policki.pl/police-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0607": {
+  "url": "https://krasnicki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3216": {
+  "url": "https://swidwinski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1409": {
+  "url": "https://powiatlipsko.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0224": {
+  "url": "https://zabkowicki.webewid.pl:444/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2470": {
+  "url": "https://wms.myslowice.pl/myslowice-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "3206": {
+  "url": "https://gryfinski.webewid.pl:4439/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2464": {
+  "url": "https://geoportal.czestochowa.pl/wfs2464_egib/Service.svc/get",
+  "version": "2.0.0",
+  "layer": "gmgml:dzialki",
+  "epsg_ok": true
+ },
+ "2602": {
+  "url": "https://jedrzejow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2006": {
+  "url": "https://kolnenski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0221": {
+  "url": "https://walbrzyski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2013": {
+  "url": "http://wysokomazowiecki.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1436": {
+  "url": "https://zwolenpowiat.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0603": {
+  "url": "https://chelmski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2406": {
+  "url": "https://powiatklobucki.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2261": {
+  "url": "https://ewid-wms.gdansk.gda.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1417": {
+  "url": "https://powiat-otwocki.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3207": {
+  "url": "https://ikerg.powiatkamienski.pl/kamien",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0861": {
+  "url": "https://geoportal.wms.um.gorzow.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1423": {
+  "url": "http://przysucha.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1462": {
+  "url": "https://wms-ggk.plock.eu:4443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2003": {
+  "url": "http://powiatbielski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1418": {
+  "url": "https://wms.epodgik.pl/cgi-bin/piaseczno",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1261": {
+  "url": "https://geodezja.eco.um.krakow.pl/krakow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0602": {
+  "url": "https://bilgorajski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "241602_1": {
+  "url": "https://wms.zawiercie.eu/cgi-bin/zawiercie-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1016": {
+  "url": "https://powiat-tomaszowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0204": {
+  "url": "https://gora.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0217": {
+  "url": "https://strzelinski-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2407": {
+  "url": "http://wms.lubliniec.starostwo.gov.pl/lubliniec-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2804": {
+  "url": "https://ikerg.powiat.elblag.pl/elblaski-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2010": {
+  "url": "https://geoportal.siemiatycze.pl/siemiatycze-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1008": {
+  "url": "https://pabianice.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2063": {
+  "url": "https://geoportal.um.suwalki.pl/ggp",
+  "version": "1.1.0",
+  "layer": "dzialki",
+  "epsg_ok": true
+ },
+ "2004": {
+  "url": "http://starostwograjewo.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1410": {
+  "url": "https://losice.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3205": {
+  "url": "https://ikerg.podgikgryfice.pl/gryfice-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2011": {
+  "url": "https://powiatsokolski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2008": {
+  "url": "https://monki.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0664": {
+  "url": "https://zamosc.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2401": {
+  "url": "https://ikerg.powiat.bedzin.pl/bedzin-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "121207_3": {
+  "url": "https://wolbrom.webewid.pl:4444/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1214": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/1214",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2005": {
+  "url": "http://hajnowka.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1403": {
+  "url": "https://garwolinski.geoportal2.pl:8443/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0415": {
+  "url": "https://torunski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0611": {
+  "url": "https://powiatlukowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1426": {
+  "url": "https://powiatsiedlecki.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1209": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/1209",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2012": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/2012",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "0803": {
+  "url": "https://powiat-miedzyrzecki.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0812": {
+  "url": "http://wschowa.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2203": {
+  "url": "https://wms.czluchow.org.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0616": {
+  "url": "https://ryki.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2608": {
+  "url": "https://pinczow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0615": {
+  "url": "http://powiatradzynski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1430": {
+  "url": "https://szydlowiecpowiat.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1413": {
+  "url": "https://powiatmlawski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1215": {
+  "url": "https://powiatsuski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1019": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/1019",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2209": {
+  "url": "https://malborski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0807": {
+  "url": "https://sulecin.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1003": {
+  "url": "https://lask.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1010": {
+  "url": "https://piotrkow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1013": {
+  "url": "https://wms.powiatrawski.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "0601": {
+  "url": "https://powiatbialski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0613": {
+  "url": "http://parczew.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2206": {
+  "url": "https://koscierski-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2208": {
+  "url": "https://leborski.webewid.pl:44443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1415": {
+  "url": "http://powiatostrolecki.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0619": {
+  "url": "https://wms.epodgik.pl/cgi-bin/wlodawa",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1406": {
+  "url": "https://grojec.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1211": {
+  "url": "https://nowotarski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0617": {
+  "url": "https://powiatswidnik.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2211": {
+  "url": "https://pdp.puck.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1062": {
+  "url": "https://ikerg.piotrkow.pl/piotrkow-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1002": {
+  "url": "https://powiatkutno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2207": {
+  "url": "https://kwidzynski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1433": {
+  "url": "https://wms.epodgik.pl/cgi-bin/wegrow",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2001": {
+  "url": "https://augustowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2216": {
+  "url": "https://mapy.geoportal.gov.pl/wss/ext/PowiatoweBazyEwidencjiGruntow/2216",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "2204": {
+  "url": "https://gdanski-wms.webewid.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1461": {
+  "url": "https://ostroleka.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1429": {
+  "url": "https://powiat-sokolowski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2404": {
+  "url": "https://czestochowa.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1012": {
+  "url": "https://radomszczanski.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0265": {
+  "url": "https://walbrzych-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2603": {
+  "url": "https://kazimierzaw.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2405": {
+  "url": "https://gliwicki.webewid.pl:4443/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2410": {
+  "url": "https://pszczynski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1020": {
+  "url": "https://zgierski-wms.webewid.pl:743/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1262": {
+  "url": "https://wms.nowosadecki.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1210": {
+  "url": "https://wms.nowosadecki.pl/iip/ows",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1402": {
+  "url": "https://ciechanow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "240301_1": {
+  "url": "https://miastocieszyn.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1201": {
+  "url": "https://bochenski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1009": {
+  "url": "https://pajeczno.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1011": {
+  "url": "http://poddebice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1407": {
+  "url": "https://kozienicepowiat.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "3011": {
+  "url": "https://wms.powiatkoscian.pl/koscian-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1018": {
+  "url": "https://wieruszow.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1263": {
+  "url": "https://wms.umt.tarnow.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2412": {
+  "url": "https://rybnik.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0618": {
+  "url": "https://tomaszowlubelski.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2417": {
+  "url": "https://zywiecki-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1208": {
+  "url": "https://miechow.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2201": {
+  "url": "https://bytowski.webewid.pl:4433/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2475": {
+  "url": "https://sosnowiec.webewid.pl:9443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1021": {
+  "url": "http://brzeziny.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1014": {
+  "url": "https://sieradz.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "1434": {
+  "url": "https://wms.epodgik.pl/cgi-bin/wolomin",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": false
+ },
+ "1216": {
+  "url": "https://webewid.powiat.tarnow.pl:20443/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2468": {
+  "url": "https://jaworzno-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "1017": {
+  "url": "https://wielun.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "240204_3": {
+  "url": "http://czechowice.geoportal2.pl/map/geoportal/wfse.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "2613": {
+  "url": "https://wloszczowa.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0805": {
+  "url": "https://slubice.geoportal2.pl/map/geoportal/wfs.php",
+  "version": "2.0.0",
+  "layer": "ewns:dzialki",
+  "epsg_ok": true
+ },
+ "0802": {
+  "url": "https://wms.powiatkrosnienski.pl/krosno-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2416": {
+  "url": "https://ikerg.zawiercie.powiat.pl/powiatzawiercianski-egib",
+  "version": "2.0.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ },
+ "2062": {
+  "url": "https://lomzynski-wms.webewid.pl/iip/ows",
+  "version": "1.1.0",
+  "layer": "ms:dzialki",
+  "epsg_ok": true
+ }
+}
