@@ -349,6 +349,7 @@
 
   async function analyzeTerytId(terytId, loadingSetter = setLoading) {
     loadingSetter(true);
+    clearError();
     results.innerHTML = "";
     try {
       const resp = await fetch(`/api/analyze?parcel_id=${encodeURIComponent(terytId)}`);
