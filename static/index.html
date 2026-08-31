@@ -301,6 +301,8 @@
   .size-result-diff.negative{ background:#fdf0e4; color:#a35d1f; }
 
   .filter-row{ margin-bottom:0; }
+  .filter-pair{ display:flex; gap:8px; }
+  .filter-pair > div{ flex:1; }
   .filter-label{
     display:block;
     font-size:12.5px;
@@ -577,12 +579,50 @@
           Podaj miejscowość i powierzchnię, aby zobaczyć listę najbardziej zbliżonych działek.
         </div>
       </div>
+
+      <p class="eyebrow" style="margin-top:26px;">Albo szukaj po wymiarach</p>
+      <p class="disclaimer" style="margin:0 0 12px;">
+        Podaj miejscowość oraz przybliżoną szerokość i długość działki —
+        pokażemy do 10 realnych działek, których oba wymiary (licząc
+        najmniejszy prostokąt otaczający działkę — rzadko jest ona idealnym
+        prostokątem) mieszczą się w granicach ±20%, od najlepiej do
+        najsłabiej dopasowanej.
+      </p>
+
+      <div class="input-row">
+        <input id="dimSearchPlace" type="text" inputmode="text" autocomplete="off"
+               placeholder="np. Zakopane" />
+        <button id="dimSearchPlaceClearBtn" aria-label="Wyczyść">✕</button>
+      </div>
+
+      <div class="filter-row filter-pair" style="margin:10px 0;">
+        <div>
+          <label class="filter-label" for="dimSearchWidth">Szerokość (m)</label>
+          <input id="dimSearchWidth" type="number" inputmode="numeric" placeholder="np. 20" />
+        </div>
+        <div>
+          <label class="filter-label" for="dimSearchLength">Długość (m)</label>
+          <input id="dimSearchLength" type="number" inputmode="numeric" placeholder="np. 50" />
+        </div>
+      </div>
+
+      <button id="dimSearchBtn">
+        <span id="dimSearchBtnLabel">Szukaj działek</span>
+        <span class="spinner" id="dimSearchSpinner"></span>
+      </button>
+
+      <div id="dimSearchErrorBox" class="error-box"></div>
+      <div id="dimSearchResults">
+        <div class="empty-hint">
+          Podaj miejscowość, szerokość i długość, aby zobaczyć listę najbardziej zbliżonych działek.
+        </div>
+      </div>
     </div>
   </div>
 
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>
