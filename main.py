@@ -361,11 +361,24 @@ async def find_parcel_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -
     }
 
 
+def _rectangle_side_lengths(geometry_2180) -> tuple[float, float]:
+    """Minimum-rotated-rectangle side lengths (meters) for an irregular
+    parcel polygon — the standard way to give a meaningful 'width x length'
+    for a shape that usually isn't a true rectangle. Returns (short, long)."""
+    mrr = geometry_2180.minimum_rotated_rectangle
+    coords = list(mrr.exterior.coords)[:4]
+    d1 = ((coords[0][0] - coords[1][0]) ** 2 + (coords[0][1] - coords[1][1]) ** 2) ** 0.5
+    d2 = ((coords[1][0] - coords[2][0]) ** 2 + (coords[1][1] - coords[2][1]) ** 2) ** 0.5
+    return (min(d1, d2), max(d1, d2))
+
+
 async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -> Optional[dict[str, Any]]:
     """Same as find_parcel_by_xy, but also fetches geometry and computes the
-    authoritative geodesic area (m^2) — same calculation method used by the
-    main /api/analyze endpoint, so area figures are consistent across the
-    whole app regardless of which search path found the parcel."""
+    authoritative geodesic area (m^2), plus approximate width/length (via the
+    minimum rotated bounding rectangle, in meters) — same calculation method
+    used by the main /api/analyze endpoint for area, so figures are
+    consistent across the whole app regardless of which search path found
+    the parcel."""
     fields = await _uldk_get_by_xy_raw(client, lon, lat, "id,voivodeship,county,commune,parcel,geom_wkt")
     if fields is None or len(fields) < 6:
         return None
@@ -373,6 +386,8 @@ async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat
         teryt_id, voivodeship, county, commune, parcel_no, geom_raw = fields[:6]
         geometry = _parse_uldk_geometry(geom_raw)
         area_m2, _ = geod.geometry_area_perimeter(geometry)
+        geometry_2180 = shapely_transform(to_2180.transform, geometry)
+        short_side, long_side = _rectangle_side_lengths(geometry_2180)
         return {
             "teryt_id": teryt_id,
             "voivodeship": voivodeship,
@@ -380,6 +395,8 @@ async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat
             "commune": commune,
             "parcel_no": parcel_no,
             "area_m2": abs(area_m2),
+            "short_side_m": short_side,
+            "long_side_m": long_side,
         }
     except Exception:
         return None
@@ -553,15 +570,14 @@ async def enumerate_parcel_points_in_area(
     return points
 
 
-async def search_parcels_by_size(
-    client: httpx.AsyncClient, place_query: str, target_area_m2: float, tolerance: float = 0.10, max_results: int = 10
-) -> dict[str, Any]:
-    """Full pipeline for the 'Szukaj działki' tab: geocode the place name to
-    a representative point, find which powiat it's in, enumerate candidate
-    parcel points in a practical radius around it via that powiat's own
-    direct WFS server, resolve each to an authoritative parcel+area via
-    ULDK, filter to within ±tolerance of the target area, and return the
-    closest matches first.
+async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) -> dict[str, Any]:
+    """Shared first half of both 'Szukaj działki' search modes (by area, by
+    width+length): geocode the place name to a stable anchor point, find
+    which powiat it's in, and enumerate+resolve every parcel found nearby
+    via that powiat's own direct WFS server + ULDK. Returns either
+    {'status': 'error', 'message': ...} or {'status': 'ok', 'parcels': {...},
+    'search_center': ...} with parcels keyed by teryt_id (deduplicated,
+    each with area_m2, short_side_m, long_side_m already computed).
 
     IMPORTANT — confirmed live bug fix: a bare place name (no street/number)
     matches MANY individual house address points scattered across that
@@ -580,9 +596,7 @@ async def search_parcels_by_size(
     lons = sorted(p["lon"] for p in address_points)
     lats = sorted(p["lat"] for p in address_points)
     mid = len(address_points) // 2
-    anchor_lon = lons[mid]
-    anchor_lat = lats[mid]
-    anchor = {"lon": anchor_lon, "lat": anchor_lat, "description": place_query}
+    anchor = {"lon": lons[mid], "lat": lats[mid], "description": place_query}
     x_2180, y_2180 = to_2180.transform(anchor["lon"], anchor["lat"])
 
     anchor_parcel = await find_parcel_by_xy(client, anchor["lon"], anchor["lat"])
@@ -621,7 +635,7 @@ async def search_parcels_by_size(
         }
 
     if not candidate_points:
-        return {"status": "ok", "matches": [], "candidates_checked": 0}
+        return {"status": "ok", "parcels": {}, "search_center": place_query}
 
     parcels = await asyncio.gather(
         *[find_parcel_with_area_by_xy(client, lon, lat) for lon, lat in candidate_points]
@@ -635,9 +649,21 @@ async def search_parcels_by_size(
         if teryt_id not in seen:
             seen[teryt_id] = parcel
 
+    return {"status": "ok", "parcels": seen, "search_center": place_query}
+
+
+async def search_parcels_by_size(
+    client: httpx.AsyncClient, place_query: str, target_area_m2: float, tolerance: float = 0.10, max_results: int = 10
+) -> dict[str, Any]:
+    """'Szukaj działki' by area: find up to `max_results` nearby parcels
+    whose area is within ±tolerance of target_area_m2, closest first."""
+    gathered = await _gather_nearby_parcels(client, place_query)
+    if gathered["status"] != "ok":
+        return gathered
+
     min_area = target_area_m2 * (1 - tolerance)
     max_area = target_area_m2 * (1 + tolerance)
-    matches = [p for p in seen.values() if min_area <= p["area_m2"] <= max_area]
+    matches = [p for p in gathered["parcels"].values() if min_area <= p["area_m2"] <= max_area]
     matches.sort(key=lambda p: abs(p["area_m2"] - target_area_m2))
     matches = matches[:max_results]
 
@@ -648,8 +674,59 @@ async def search_parcels_by_size(
     return {
         "status": "ok",
         "matches": matches,
-        "candidates_checked": len(seen),
-        "search_center": anchor["description"],
+        "candidates_checked": len(gathered["parcels"]),
+        "search_center": gathered["search_center"],
+    }
+
+
+async def search_parcels_by_dimensions(
+    client: httpx.AsyncClient, place_query: str, target_width_m: float, target_length_m: float,
+    tolerance: float = 0.20, max_results: int = 10,
+) -> dict[str, Any]:
+    """'Szukaj działki' by width + length: find up to `max_results` nearby
+    parcels whose minimum-bounding-rectangle side lengths are BOTH within
+    ±tolerance of the target width and length (matched short-side-to-
+    short-side, long-side-to-long-side — order-independent, since the
+    person may not know which of their two numbers is the 'width' vs the
+    'length' in the register), ranked by combined closeness (average of the
+    two relative errors) — closest first. Real parcels are rarely true
+    rectangles, so 'width'/'length' here means the sides of the smallest
+    rectangle that fully contains the parcel, which is the standard way to
+    describe an irregular plot's rough dimensions."""
+    gathered = await _gather_nearby_parcels(client, place_query)
+    if gathered["status"] != "ok":
+        return gathered
+
+    target_short = min(target_width_m, target_length_m)
+    target_long = max(target_width_m, target_length_m)
+    short_min, short_max = target_short * (1 - tolerance), target_short * (1 + tolerance)
+    long_min, long_max = target_long * (1 - tolerance), target_long * (1 + tolerance)
+
+    matches = []
+    for p in gathered["parcels"].values():
+        s, l = p["short_side_m"], p["long_side_m"]
+        if short_min <= s <= short_max and long_min <= l <= long_max:
+            short_err = abs(s - target_short) / target_short
+            long_err = abs(l - target_long) / target_long
+            p["_combined_err"] = (short_err + long_err) / 2
+            matches.append(p)
+
+    matches.sort(key=lambda p: p["_combined_err"])
+    matches = matches[:max_results]
+
+    for m in matches:
+        m["short_diff_pct"] = round((m["short_side_m"] - target_short) / target_short * 100, 1)
+        m["long_diff_pct"] = round((m["long_side_m"] - target_long) / target_long * 100, 1)
+        m["short_side_m"] = round(m["short_side_m"], 1)
+        m["long_side_m"] = round(m["long_side_m"], 1)
+        m["area_m2"] = round(m["area_m2"], 1)
+        del m["_combined_err"]
+
+    return {
+        "status": "ok",
+        "matches": matches,
+        "candidates_checked": len(gathered["parcels"]),
+        "search_center": gathered["search_center"],
     }
 
 
@@ -1356,6 +1433,30 @@ async def search_by_size(place: str = Query(default=""), area_m2: float = Query(
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
         result = await search_parcels_by_size(client, place, area_m2)
+
+    if result["status"] != "ok":
+        raise HTTPException(502, result["message"])
+    return result
+
+
+@app.get("/api/search-by-dimensions")
+async def search_by_dimensions(
+    place: str = Query(default=""), width_m: float = Query(default=0), length_m: float = Query(default=0)
+):
+    """'Szukaj działki' tab, dimension mode: given a locality name and an
+    approximate width + length (meters), finds up to 10 real parcels in
+    that locality whose minimum-bounding-rectangle sides BOTH fall within
+    ±20% of the target width and length (matched short-to-short,
+    long-to-long, order-independent), closest combined match first. See
+    search_parcels_by_dimensions for the full pipeline."""
+    place = place.strip()
+    if len(place) < 2:
+        raise HTTPException(400, "Podaj nazwę miejscowości.")
+    if width_m <= 0 or length_m <= 0:
+        raise HTTPException(400, "Podaj przybliżoną szerokość i długość działki (w metrach), obie większe od zera.")
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
+        result = await search_parcels_by_dimensions(client, place, width_m, length_m)
 
     if result["status"] != "ok":
         raise HTTPException(502, result["message"])
