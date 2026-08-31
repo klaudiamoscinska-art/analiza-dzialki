@@ -561,12 +561,28 @@ async def search_parcels_by_size(
     parcel points in a practical radius around it via that powiat's own
     direct WFS server, resolve each to an authoritative parcel+area via
     ULDK, filter to within ±tolerance of the target area, and return the
-    closest matches first."""
-    address_points = await geocode_address_points(client, place_query, max_results=3)
+    closest matches first.
+
+    IMPORTANT — confirmed live bug fix: a bare place name (no street/number)
+    matches MANY individual house address points scattered across that
+    locality (e.g. 40 different addresses for one village), and the
+    geocoder does not return them in a stable order — picking address_points[0]
+    meant the exact same search could silently anchor on a different house
+    each time, shifting the whole 2km search radius and changing the
+    results. The median of ALL matched points is used instead — this stays
+    put run-to-run (order-independent) and, being a median rather than a
+    mean, is also robust to the rare case of an unrelated same-named place
+    being mixed into the results."""
+    address_points = await geocode_address_points(client, place_query, max_results=40)
     if not address_points:
         return {"status": "error", "message": f"Nie znaleziono miejscowości '{place_query}'."}
 
-    anchor = address_points[0]
+    lons = sorted(p["lon"] for p in address_points)
+    lats = sorted(p["lat"] for p in address_points)
+    mid = len(address_points) // 2
+    anchor_lon = lons[mid]
+    anchor_lat = lats[mid]
+    anchor = {"lon": anchor_lon, "lat": anchor_lat, "description": place_query}
     x_2180, y_2180 = to_2180.transform(anchor["lon"], anchor["lat"])
 
     anchor_parcel = await find_parcel_by_xy(client, anchor["lon"], anchor["lat"])
