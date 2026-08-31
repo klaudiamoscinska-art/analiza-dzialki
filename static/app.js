@@ -541,7 +541,12 @@
     }
 
     if (p.geoportal_link) {
-      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:14px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
+      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
+    }
+
+    if (data.centroid && typeof data.centroid.lat === "number" && typeof data.centroid.lon === "number") {
+      const gmapsUrl = `https://www.google.com/maps?q=${data.centroid.lat},${data.centroid.lon}`;
+      html += `<a class="link-out-btn" href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:14px;">Zobacz na Google Maps →</a>`;
     }
 
     // 1 — Ewidencja gruntów i budynków
