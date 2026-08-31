@@ -657,16 +657,37 @@ async def search_parcels_universal(
     target_area_m2: Optional[float] = None,
     target_width_m: Optional[float] = None, target_length_m: Optional[float] = None,
     area_tolerance: float = 0.10, dim_tolerance: float = 0.20, max_results: int = 10,
+    min_rectangularity: float = 0.65,
 ) -> dict[str, Any]:
     """'Szukaj działki': one universal search accepting any combination of a
     target area (m², ±10%) and/or a target width+length (m, ±20% each, via
     the minimum-bounding-rectangle — real parcels are rarely true
     rectangles). At least one of (area) or (width AND length) must be given.
     A candidate must satisfy EVERY criterion supplied to be included at all;
-    ranking is by the average relative error across whichever criteria were
-    supplied, closest first — so a parcel matching on both area and
-    dimensions ranks by its combined accuracy on all of them together,
-    exactly as requested, rather than needing separate searches."""
+    ranking is by combined error across whichever criteria were supplied,
+    closest first.
+
+    Three refinements over a naive width/length match, since 'width×length'
+    is only a meaningful description for a shape that's actually roughly
+    rectangular:
+      1. Rectangularity filter — reject parcels whose real area is below
+         min_rectangularity × (short_side × long_side). A bounding rectangle
+         can technically satisfy both side-length tolerances while wrapping
+         an L-shaped or triangular parcel that's nothing like what the
+         person pictured — this filters those out rather than reporting a
+         falsely confident match.
+      2. RMS (root-mean-square) instead of a plain average to combine the
+         individual relative errors — this penalises an uneven match (e.g.
+         short side spot-on but long side way off) more than an average
+         would, so a parcel that's mediocre on both dimensions can rank
+         above one that's excellent on one and poor on the other, even
+         though both might average out similarly.
+      3. Implied-area cross-check — when width+length are given without an
+         explicit target area, target_width×target_length is compared
+         against the parcel's real area as an extra RMS term. This catches
+         cases the side-length + rectangularity checks alone might still
+         miss, since it's a genuinely independent signal computed from the
+         person's own two numbers."""
     gathered = await _gather_nearby_parcels(client, place_query)
     if gathered["status"] != "ok":
         return gathered
@@ -675,17 +696,18 @@ async def search_parcels_universal(
     want_dims = target_width_m is not None and target_length_m is not None
     target_short = min(target_width_m, target_length_m) if want_dims else None
     target_long = max(target_width_m, target_length_m) if want_dims else None
+    implied_area = (target_width_m * target_length_m) if (want_dims and not want_area) else None
 
     matches = []
     for p in gathered["parcels"].values():
-        errors = []
+        sq_errors = []
 
         if want_area:
             a = p["area_m2"]
             area_err = abs(a - target_area_m2) / target_area_m2
             if area_err > area_tolerance:
                 continue
-            errors.append(area_err)
+            sq_errors.append(area_err ** 2)
 
         if want_dims:
             s, l = p["short_side_m"], p["long_side_m"]
@@ -693,9 +715,21 @@ async def search_parcels_universal(
             long_err = abs(l - target_long) / target_long
             if short_err > dim_tolerance or long_err > dim_tolerance:
                 continue
-            errors.append((short_err + long_err) / 2)
 
-        p["_combined_err"] = sum(errors) / len(errors)
+            rect_area = s * l
+            rectangularity = p["area_m2"] / rect_area if rect_area > 0 else 0
+            if rectangularity < min_rectangularity:
+                continue
+            p["rectangularity"] = rectangularity
+
+            sq_errors.append(short_err ** 2)
+            sq_errors.append(long_err ** 2)
+
+            if implied_area is not None:
+                implied_err = abs(p["area_m2"] - implied_area) / implied_area
+                sq_errors.append(implied_err ** 2)
+
+        p["_combined_err"] = (sum(sq_errors) / len(sq_errors)) ** 0.5
         matches.append(p)
 
     matches.sort(key=lambda p: p["_combined_err"])
@@ -707,6 +741,8 @@ async def search_parcels_universal(
         if want_dims:
             m["short_diff_pct"] = round((m["short_side_m"] - target_short) / target_short * 100, 1)
             m["long_diff_pct"] = round((m["long_side_m"] - target_long) / target_long * 100, 1)
+            m["rectangularity_pct"] = round(m["rectangularity"] * 100, 0)
+            del m["rectangularity"]
         m["short_side_m"] = round(m["short_side_m"], 1)
         m["long_side_m"] = round(m["long_side_m"], 1)
         m["area_m2"] = round(m["area_m2"], 1)
