@@ -652,71 +652,61 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
     return {"status": "ok", "parcels": seen, "search_center": place_query}
 
 
-async def search_parcels_by_size(
-    client: httpx.AsyncClient, place_query: str, target_area_m2: float, tolerance: float = 0.10, max_results: int = 10
+async def search_parcels_universal(
+    client: httpx.AsyncClient, place_query: str,
+    target_area_m2: Optional[float] = None,
+    target_width_m: Optional[float] = None, target_length_m: Optional[float] = None,
+    area_tolerance: float = 0.10, dim_tolerance: float = 0.20, max_results: int = 10,
 ) -> dict[str, Any]:
-    """'Szukaj działki' by area: find up to `max_results` nearby parcels
-    whose area is within ±tolerance of target_area_m2, closest first."""
+    """'Szukaj działki': one universal search accepting any combination of a
+    target area (m², ±10%) and/or a target width+length (m, ±20% each, via
+    the minimum-bounding-rectangle — real parcels are rarely true
+    rectangles). At least one of (area) or (width AND length) must be given.
+    A candidate must satisfy EVERY criterion supplied to be included at all;
+    ranking is by the average relative error across whichever criteria were
+    supplied, closest first — so a parcel matching on both area and
+    dimensions ranks by its combined accuracy on all of them together,
+    exactly as requested, rather than needing separate searches."""
     gathered = await _gather_nearby_parcels(client, place_query)
     if gathered["status"] != "ok":
         return gathered
 
-    min_area = target_area_m2 * (1 - tolerance)
-    max_area = target_area_m2 * (1 + tolerance)
-    matches = [p for p in gathered["parcels"].values() if min_area <= p["area_m2"] <= max_area]
-    matches.sort(key=lambda p: abs(p["area_m2"] - target_area_m2))
-    matches = matches[:max_results]
-
-    for m in matches:
-        m["diff_pct"] = round((m["area_m2"] - target_area_m2) / target_area_m2 * 100, 1)
-        m["area_m2"] = round(m["area_m2"], 1)
-
-    return {
-        "status": "ok",
-        "matches": matches,
-        "candidates_checked": len(gathered["parcels"]),
-        "search_center": gathered["search_center"],
-    }
-
-
-async def search_parcels_by_dimensions(
-    client: httpx.AsyncClient, place_query: str, target_width_m: float, target_length_m: float,
-    tolerance: float = 0.20, max_results: int = 10,
-) -> dict[str, Any]:
-    """'Szukaj działki' by width + length: find up to `max_results` nearby
-    parcels whose minimum-bounding-rectangle side lengths are BOTH within
-    ±tolerance of the target width and length (matched short-side-to-
-    short-side, long-side-to-long-side — order-independent, since the
-    person may not know which of their two numbers is the 'width' vs the
-    'length' in the register), ranked by combined closeness (average of the
-    two relative errors) — closest first. Real parcels are rarely true
-    rectangles, so 'width'/'length' here means the sides of the smallest
-    rectangle that fully contains the parcel, which is the standard way to
-    describe an irregular plot's rough dimensions."""
-    gathered = await _gather_nearby_parcels(client, place_query)
-    if gathered["status"] != "ok":
-        return gathered
-
-    target_short = min(target_width_m, target_length_m)
-    target_long = max(target_width_m, target_length_m)
-    short_min, short_max = target_short * (1 - tolerance), target_short * (1 + tolerance)
-    long_min, long_max = target_long * (1 - tolerance), target_long * (1 + tolerance)
+    want_area = target_area_m2 is not None
+    want_dims = target_width_m is not None and target_length_m is not None
+    target_short = min(target_width_m, target_length_m) if want_dims else None
+    target_long = max(target_width_m, target_length_m) if want_dims else None
 
     matches = []
     for p in gathered["parcels"].values():
-        s, l = p["short_side_m"], p["long_side_m"]
-        if short_min <= s <= short_max and long_min <= l <= long_max:
+        errors = []
+
+        if want_area:
+            a = p["area_m2"]
+            area_err = abs(a - target_area_m2) / target_area_m2
+            if area_err > area_tolerance:
+                continue
+            errors.append(area_err)
+
+        if want_dims:
+            s, l = p["short_side_m"], p["long_side_m"]
             short_err = abs(s - target_short) / target_short
             long_err = abs(l - target_long) / target_long
-            p["_combined_err"] = (short_err + long_err) / 2
-            matches.append(p)
+            if short_err > dim_tolerance or long_err > dim_tolerance:
+                continue
+            errors.append((short_err + long_err) / 2)
+
+        p["_combined_err"] = sum(errors) / len(errors)
+        matches.append(p)
 
     matches.sort(key=lambda p: p["_combined_err"])
     matches = matches[:max_results]
 
     for m in matches:
-        m["short_diff_pct"] = round((m["short_side_m"] - target_short) / target_short * 100, 1)
-        m["long_diff_pct"] = round((m["long_side_m"] - target_long) / target_long * 100, 1)
+        if want_area:
+            m["diff_pct"] = round((m["area_m2"] - target_area_m2) / target_area_m2 * 100, 1)
+        if want_dims:
+            m["short_diff_pct"] = round((m["short_side_m"] - target_short) / target_short * 100, 1)
+            m["long_diff_pct"] = round((m["long_side_m"] - target_long) / target_long * 100, 1)
         m["short_side_m"] = round(m["short_side_m"], 1)
         m["long_side_m"] = round(m["long_side_m"], 1)
         m["area_m2"] = round(m["area_m2"], 1)
@@ -727,6 +717,7 @@ async def search_parcels_by_dimensions(
         "matches": matches,
         "candidates_checked": len(gathered["parcels"]),
         "search_center": gathered["search_center"],
+        "criteria": {"area": want_area, "dimensions": want_dims},
     }
 
 
@@ -1418,45 +1409,38 @@ async def try_numbered_precinct_variants(
     return combined
 
 
-@app.get("/api/search-by-size")
-async def search_by_size(place: str = Query(default=""), area_m2: float = Query(default=0)):
-    """'Szukaj działki' tab: given a locality name and a target area (m²),
-    finds up to 10 real parcels in that locality whose area is within ±10%
-    of the target, closest match first. See search_parcels_by_size for the
-    full pipeline and an important note about a live WFS outage encountered
-    while building this."""
-    place = place.strip()
-    if len(place) < 2:
-        raise HTTPException(400, "Podaj nazwę miejscowości.")
-    if area_m2 <= 0:
-        raise HTTPException(400, "Podaj docelową powierzchnię działki (w m²), większą od zera.")
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-        result = await search_parcels_by_size(client, place, area_m2)
-
-    if result["status"] != "ok":
-        raise HTTPException(502, result["message"])
-    return result
-
-
-@app.get("/api/search-by-dimensions")
-async def search_by_dimensions(
-    place: str = Query(default=""), width_m: float = Query(default=0), length_m: float = Query(default=0)
+@app.get("/api/search-by-parcel-size")
+async def search_by_parcel_size(
+    place: str = Query(default=""),
+    area_m2: Optional[float] = Query(default=None),
+    width_m: Optional[float] = Query(default=None),
+    length_m: Optional[float] = Query(default=None),
 ):
-    """'Szukaj działki' tab, dimension mode: given a locality name and an
-    approximate width + length (meters), finds up to 10 real parcels in
-    that locality whose minimum-bounding-rectangle sides BOTH fall within
-    ±20% of the target width and length (matched short-to-short,
-    long-to-long, order-independent), closest combined match first. See
-    search_parcels_by_dimensions for the full pipeline."""
+    """'Szukaj działki' tab: one universal search. Given a locality name and
+    ANY combination of a target area (m²) and/or a target width+length (m),
+    finds up to 10 real nearby parcels matching ALL supplied criteria
+    (area within ±10%, width/length within ±20% each), ranked by combined
+    closeness across whichever criteria were given. See
+    search_parcels_universal for the full pipeline."""
     place = place.strip()
     if len(place) < 2:
         raise HTTPException(400, "Podaj nazwę miejscowości.")
-    if width_m <= 0 or length_m <= 0:
-        raise HTTPException(400, "Podaj przybliżoną szerokość i długość działki (w metrach), obie większe od zera.")
+
+    have_area = area_m2 is not None and area_m2 > 0
+    have_dims = width_m is not None and width_m > 0 and length_m is not None and length_m > 0
+    if not have_area and not have_dims:
+        raise HTTPException(
+            400,
+            "Podaj powierzchnię (m²) i/lub szerokość i długość działki (m) — przynajmniej jedno z tych kryteriów.",
+        )
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-        result = await search_parcels_by_dimensions(client, place, width_m, length_m)
+        result = await search_parcels_universal(
+            client, place,
+            target_area_m2=area_m2 if have_area else None,
+            target_width_m=width_m if have_dims else None,
+            target_length_m=length_m if have_dims else None,
+        )
 
     if result["status"] != "ok":
         raise HTTPException(502, result["message"])
