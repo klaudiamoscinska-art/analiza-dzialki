@@ -141,6 +141,7 @@
   const sizeSearchArea = document.getElementById("sizeSearchArea");
   const dimSearchWidth = document.getElementById("dimSearchWidth");
   const dimSearchLength = document.getElementById("dimSearchLength");
+  const dimAsMaxCheckbox = document.getElementById("dimAsMaxCheckbox");
   const sizeSearchBtn = document.getElementById("sizeSearchBtn");
   const sizeSearchSpinner = document.getElementById("sizeSearchSpinner");
   const sizeSearchBtnLabel = document.getElementById("sizeSearchBtnLabel");
@@ -173,6 +174,7 @@
     const area = sizeSearchArea.value.trim();
     const width = dimSearchWidth.value.trim();
     const length = dimSearchLength.value.trim();
+    const asMax = dimAsMaxCheckbox.checked;
 
     const haveArea = area && Number(area) > 0;
     const haveWidth = width && Number(width) > 0;
@@ -186,6 +188,10 @@
     }
     if (!haveArea && !haveAnyDim) {
       showSizeSearchError("Podaj powierzchnię i/lub szerokość i/lub długość działki — przynajmniej jedno z tych kryteriów.");
+      return;
+    }
+    if (asMax && !haveBothDims) {
+      showSizeSearchError("Przy wyszukiwaniu „nie większa niż” podaj oba wymiary — maksymalną szerokość i maksymalną długość.");
       return;
     }
     if (haveAnyDim && !haveArea && !haveBothDims) {
@@ -202,6 +208,7 @@
       if (haveArea) params.set("area_m2", area);
       if (haveWidth) params.set("width_m", width);
       if (haveLength) params.set("length_m", length);
+      if (asMax) params.set("dims_as_maximum", "true");
       const resp = await fetch(`/api/search-by-parcel-size?${params.toString()}`);
       const data = await resp.json();
 
@@ -213,7 +220,8 @@
         data,
         haveArea ? Number(area) : null,
         haveWidth ? Number(width) : null,
-        haveLength ? Number(length) : null
+        haveLength ? Number(length) : null,
+        asMax
       );
     } catch (err) {
       showSizeSearchError(err.message || "Wystąpił nieoczekiwany błąd.");
@@ -223,10 +231,10 @@
     }
   }
 
-  function renderSizeSearchResults(data, targetArea, targetWidth, targetLength) {
+  function renderSizeSearchResults(data, targetArea, targetWidth, targetLength, asMax) {
     let dimLabel = null;
     if (targetWidth && targetLength) {
-      dimLabel = `${targetWidth}×${targetLength} m`;
+      dimLabel = asMax ? `maks. ${targetWidth}×${targetLength} m` : `${targetWidth}×${targetLength} m`;
     } else if (targetWidth) {
       dimLabel = `bok ~${targetWidth} m`;
     } else if (targetLength) {
@@ -250,7 +258,11 @@
           const neg = m.diff_pct < 0;
           parts.push(`<span class="size-result-diff${neg ? " negative" : ""}">pow. ${neg ? "" : "+"}${m.diff_pct}%</span>`);
         }
-        if (data.criteria && data.criteria.dimensions) {
+        if (data.criteria && data.criteria.dims_as_maximum) {
+          parts.push(
+            `<span class="size-result-diff">margines ${m.short_margin_pct}% / ${m.long_margin_pct}%</span>`
+          );
+        } else if (data.criteria && data.criteria.dimensions) {
           const sNeg = m.short_diff_pct < 0;
           const lNeg = m.long_diff_pct < 0;
           parts.push(
