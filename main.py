@@ -571,16 +571,37 @@ async def search_parcels_by_size(
 
     anchor_parcel = await find_parcel_by_xy(client, anchor["lon"], anchor["lat"])
     if anchor_parcel is None:
-        return {"status": "error", "message": f"Nie udało się ustalić powiatu dla '{place_query}'."}
+        return {
+            "status": "error",
+            "message": (
+                f"Nie udało się sprawdzić '{place_query}' — serwer odpowiedzialny za tę okolicę "
+                "(prowadzony osobno przez dany powiat) jest teraz chwilowo niedostępny. To nie błąd "
+                "w aplikacji, tylko przejściowa awaria po stronie urzędu. Spróbuj ponownie za "
+                "kilka-kilkanaście minut, albo w międzyczasie sprawdź inną miejscowość."
+            ),
+        }
 
     try:
         candidate_points = await enumerate_parcel_points_in_area(
             client, anchor_parcel["teryt_id"], x_2180, y_2180, anchor["lon"], anchor["lat"]
         )
     except Exception as exc:
+        if "nie jest jeszcze w naszym rejestrze" in str(exc):
+            return {
+                "status": "error",
+                "message": (
+                    f"{exc} Ta okolica nie jest jeszcze obsługiwana — spróbuj innej miejscowości "
+                    "(np. większej, sąsiedniej)."
+                ),
+            }
         return {
             "status": "error",
-            "message": f"Usługa WFS EGiB (wykaz działek w okolicy) jest obecnie niedostępna: {exc}",
+            "message": (
+                f"Serwer odpowiedzialny za tę okolicę jest teraz chwilowo niedostępny "
+                f"({exc}). To nie błąd w aplikacji, tylko przejściowa awaria po stronie urzędu — "
+                "spróbuj ponownie za kilka-kilkanaście minut, albo w międzyczasie sprawdź inną "
+                "miejscowość."
+            ),
         }
 
     if not candidate_points:
