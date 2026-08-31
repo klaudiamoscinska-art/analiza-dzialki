@@ -656,41 +656,45 @@ async def search_parcels_universal(
     client: httpx.AsyncClient, place_query: str,
     target_area_m2: Optional[float] = None,
     target_width_m: Optional[float] = None, target_length_m: Optional[float] = None,
+    dims_as_maximum: bool = False,
     area_tolerance: float = 0.10, dim_tolerance: float = 0.20, max_results: int = 10,
     min_rectangularity: float = 0.65,
 ) -> dict[str, Any]:
     """'Szukaj działki': one universal search accepting any combination of a
-    target area (m², ±10%) and/or width/length (m, ±20% each, via the
-    minimum-bounding-rectangle — real parcels are rarely true rectangles).
-    Width and length can each be given independently — a single side is
-    accepted as long as the target area is also given (area anchors the
-    match enough for a lone side length to still be meaningful; a lone side
-    with no area at all is too little information, so that combination is
-    rejected). A candidate must satisfy EVERY criterion supplied to be
-    included; ranking is by combined error across whichever criteria were
-    supplied, closest first.
+    target area (m², ±10%) and/or width/length (m). Width/length work in one
+    of two modes:
+      - Approximate (default): each side within ±20% of the target — a
+        single side is accepted here as long as area is also given.
+      - Maximum (dims_as_maximum=True): BOTH width and length are required,
+        and treated as a hard ceiling — a parcel's short/long sides must
+        each be ≤ the corresponding target, with no lower bound. Ranking is
+        by how fully the parcel uses the given envelope (closer to the
+        ceiling on both sides ranks first) rather than by closeness to a
+        target, since there's no single 'target' value to measure distance
+        from in this mode.
+    A candidate must satisfy EVERY criterion supplied to be included; when
+    not in maximum mode, ranking is by combined error across whichever
+    criteria were supplied, closest first.
 
     Three refinements over a naive width/length match, since 'width×length'
     is only a meaningful description for a shape that's actually roughly
-    rectangular:
+    rectangular (this applies in both approximate and maximum mode):
       1. Rectangularity filter — reject parcels whose real area is below
          min_rectangularity × (short_side × long_side). A bounding rectangle
-         can technically satisfy both side-length tolerances while wrapping
-         an L-shaped or triangular parcel that's nothing like what the
-         person pictured — this filters those out rather than reporting a
-         falsely confident match.
+         can technically satisfy both side-length checks while wrapping an
+         L-shaped or triangular parcel that's nothing like what the person
+         pictured — this filters those out rather than reporting a falsely
+         confident match.
       2. RMS (root-mean-square) instead of a plain average to combine the
-         individual relative errors — this penalises an uneven match (e.g.
-         short side spot-on but long side way off) more than an average
-         would, so a parcel that's mediocre on both dimensions can rank
-         above one that's excellent on one and poor on the other, even
-         though both might average out similarly.
-      3. Implied-area cross-check — when width+length are given without an
-         explicit target area, target_width×target_length is compared
-         against the parcel's real area as an extra RMS term. This catches
-         cases the side-length + rectangularity checks alone might still
-         miss, since it's a genuinely independent signal computed from the
-         person's own two numbers."""
+         individual relative errors in approximate mode — this penalises an
+         uneven match (e.g. short side spot-on but long side way off) more
+         than an average would.
+      3. Implied-area cross-check — in approximate mode, when width+length
+         are given without an explicit target area, target_width×target_length
+         is compared against the parcel's real area as an extra RMS term.
+         This catches cases the side-length + rectangularity checks alone
+         might still miss, since it's a genuinely independent signal
+         computed from the person's own two numbers."""
     gathered = await _gather_nearby_parcels(client, place_query)
     if gathered["status"] != "ok":
         return gathered
@@ -699,13 +703,15 @@ async def search_parcels_universal(
     have_width = target_width_m is not None
     have_length = target_length_m is not None
     want_dims_full = have_width and have_length
-    want_single_dim = (have_width or have_length) and not want_dims_full
+    want_single_dim = (have_width or have_length) and not want_dims_full and not dims_as_maximum
     single_dim_value = target_width_m if have_width else target_length_m
     want_any_dim = want_dims_full or want_single_dim
 
     target_short = min(target_width_m, target_length_m) if want_dims_full else None
     target_long = max(target_width_m, target_length_m) if want_dims_full else None
-    implied_area = (target_width_m * target_length_m) if (want_dims_full and not want_area) else None
+    implied_area = (
+        (target_width_m * target_length_m) if (want_dims_full and not want_area and not dims_as_maximum) else None
+    )
 
     matches = []
     for p in gathered["parcels"].values():
@@ -718,7 +724,17 @@ async def search_parcels_universal(
                 continue
             sq_errors.append(area_err ** 2)
 
-        if want_dims_full:
+        if want_dims_full and dims_as_maximum:
+            s, l = p["short_side_m"], p["long_side_m"]
+            if s > target_short or l > target_long:
+                continue
+            # Ranking signal: how fully the parcel fills the given envelope
+            # (closer to the ceiling on both sides = higher fill = better).
+            fill_short = s / target_short
+            fill_long = l / target_long
+            p["_fill"] = ((fill_short ** 2 + fill_long ** 2) / 2) ** 0.5
+
+        elif want_dims_full:
             s, l = p["short_side_m"], p["long_side_m"]
             short_err = abs(s - target_short) / target_short
             long_err = abs(l - target_long) / target_long
@@ -742,7 +758,7 @@ async def search_parcels_universal(
                 continue
             sq_errors.append(best_err ** 2)
 
-        if want_any_dim:
+        if want_dims_full or want_single_dim:
             s, l = p["short_side_m"], p["long_side_m"]
             rect_area = s * l
             rectangularity = p["area_m2"] / rect_area if rect_area > 0 else 0
@@ -750,7 +766,14 @@ async def search_parcels_universal(
                 continue
             p["rectangularity"] = rectangularity
 
-        p["_combined_err"] = (sum(sq_errors) / len(sq_errors)) ** 0.5
+        if dims_as_maximum and want_dims_full:
+            # No target to measure "error" against in this mode — rank by
+            # fill (computed above), highest first, so sort key is negated
+            # to reuse the same ascending sort below.
+            p["_combined_err"] = 1 - p["_fill"]
+            del p["_fill"]
+        else:
+            p["_combined_err"] = (sum(sq_errors) / len(sq_errors)) ** 0.5 if sq_errors else 0.0
         matches.append(p)
 
     matches.sort(key=lambda p: p["_combined_err"])
@@ -759,7 +782,10 @@ async def search_parcels_universal(
     for m in matches:
         if want_area:
             m["diff_pct"] = round((m["area_m2"] - target_area_m2) / target_area_m2 * 100, 1)
-        if want_dims_full:
+        if want_dims_full and dims_as_maximum:
+            m["short_margin_pct"] = round((target_short - m["short_side_m"]) / target_short * 100, 1)
+            m["long_margin_pct"] = round((target_long - m["long_side_m"]) / target_long * 100, 1)
+        elif want_dims_full:
             m["short_diff_pct"] = round((m["short_side_m"] - target_short) / target_short * 100, 1)
             m["long_diff_pct"] = round((m["long_side_m"] - target_long) / target_long * 100, 1)
         elif want_single_dim:
@@ -767,7 +793,7 @@ async def search_parcels_universal(
             m["matched_side_diff_pct"] = round((matched_val - single_dim_value) / single_dim_value * 100, 1)
             m["matched_side_label"] = "krótszy bok" if m["_matched_side"] == "short" else "dłuższy bok"
             del m["_matched_side"]
-        if want_any_dim:
+        if want_any_dim or (want_dims_full and dims_as_maximum):
             m["rectangularity_pct"] = round(m["rectangularity"] * 100, 0)
             del m["rectangularity"]
         m["short_side_m"] = round(m["short_side_m"], 1)
@@ -780,7 +806,10 @@ async def search_parcels_universal(
         "matches": matches,
         "candidates_checked": len(gathered["parcels"]),
         "search_center": gathered["search_center"],
-        "criteria": {"area": want_area, "dimensions": want_dims_full, "single_dimension": want_single_dim},
+        "criteria": {
+            "area": want_area, "dimensions": want_dims_full, "single_dimension": want_single_dim,
+            "dims_as_maximum": want_dims_full and dims_as_maximum,
+        },
     }
 
 
@@ -1478,15 +1507,17 @@ async def search_by_parcel_size(
     area_m2: Optional[float] = Query(default=None),
     width_m: Optional[float] = Query(default=None),
     length_m: Optional[float] = Query(default=None),
+    dims_as_maximum: bool = Query(default=False),
 ):
     """'Szukaj działki' tab: one universal search. Given a locality name and
     ANY combination of a target area (m²) and/or width/length (m), finds up
-    to 10 real nearby parcels matching ALL supplied criteria (area within
-    ±10%, width/length within ±20% each), ranked by combined closeness
-    across whichever criteria were given. A single side length (just width,
-    or just length) is accepted as long as area is also given — see
-    search_parcels_universal for why a lone side with no area is rejected
-    as too little information."""
+    to 10 real nearby parcels matching ALL supplied criteria, ranked by
+    combined closeness across whichever criteria were given. A single side
+    length (just width, or just length) is accepted as long as area is also
+    given. If dims_as_maximum=true, width AND length are both required and
+    treated as a hard ceiling (parcel's sides must each be ≤ the given
+    value) rather than an approximate ±20% target — see
+    search_parcels_universal for the full pipeline."""
     place = place.strip()
     if len(place) < 2:
         raise HTTPException(400, "Podaj nazwę miejscowości.")
@@ -1501,6 +1532,11 @@ async def search_by_parcel_size(
             400,
             "Podaj powierzchnię (m²) i/lub szerokość i/lub długość działki (m) — przynajmniej jedno z tych kryteriów.",
         )
+    if dims_as_maximum and not (have_width and have_length):
+        raise HTTPException(
+            400,
+            "Przy wyszukiwaniu 'nie większa niż' podaj oba wymiary — maksymalną szerokość i maksymalną długość.",
+        )
     if have_any_dim and not have_area and not (have_width and have_length):
         raise HTTPException(
             400,
@@ -1513,6 +1549,7 @@ async def search_by_parcel_size(
             target_area_m2=area_m2 if have_area else None,
             target_width_m=width_m if have_width else None,
             target_length_m=length_m if have_length else None,
+            dims_as_maximum=dims_as_maximum,
         )
 
     if result["status"] != "ok":
