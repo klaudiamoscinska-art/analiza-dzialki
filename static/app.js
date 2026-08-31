@@ -175,19 +175,21 @@
     const length = dimSearchLength.value.trim();
 
     const haveArea = area && Number(area) > 0;
-    const haveDims = width && Number(width) > 0 && length && Number(length) > 0;
-    const dimsPartial = (width && Number(width) > 0) !== (length && Number(length) > 0);
+    const haveWidth = width && Number(width) > 0;
+    const haveLength = length && Number(length) > 0;
+    const haveAnyDim = haveWidth || haveLength;
+    const haveBothDims = haveWidth && haveLength;
 
     if (!place) {
       showSizeSearchError("Wpisz nazwę miejscowości.");
       return;
     }
-    if (dimsPartial) {
-      showSizeSearchError("Podaj zarówno szerokość, jak i długość — albo żadnej z nich.");
+    if (!haveArea && !haveAnyDim) {
+      showSizeSearchError("Podaj powierzchnię i/lub szerokość i/lub długość działki — przynajmniej jedno z tych kryteriów.");
       return;
     }
-    if (!haveArea && !haveDims) {
-      showSizeSearchError("Podaj powierzchnię i/lub szerokość i długość działki — przynajmniej jedno z tych kryteriów.");
+    if (haveAnyDim && !haveArea && !haveBothDims) {
+      showSizeSearchError("Sam jeden wymiar (bez powierzchni) to za mało — podaj też powierzchnię, albo drugi wymiar.");
       return;
     }
 
@@ -198,10 +200,8 @@
     try {
       const params = new URLSearchParams({ place });
       if (haveArea) params.set("area_m2", area);
-      if (haveDims) {
-        params.set("width_m", width);
-        params.set("length_m", length);
-      }
+      if (haveWidth) params.set("width_m", width);
+      if (haveLength) params.set("length_m", length);
       const resp = await fetch(`/api/search-by-parcel-size?${params.toString()}`);
       const data = await resp.json();
 
@@ -209,7 +209,12 @@
         throw new Error(data.detail || "Nie udało się przeszukać tej okolicy.");
       }
 
-      renderSizeSearchResults(data, haveArea ? Number(area) : null, haveDims ? Number(width) : null, haveDims ? Number(length) : null);
+      renderSizeSearchResults(
+        data,
+        haveArea ? Number(area) : null,
+        haveWidth ? Number(width) : null,
+        haveLength ? Number(length) : null
+      );
     } catch (err) {
       showSizeSearchError(err.message || "Wystąpił nieoczekiwany błąd.");
       sizeSearchResultsEl.innerHTML = "";
@@ -219,12 +224,15 @@
   }
 
   function renderSizeSearchResults(data, targetArea, targetWidth, targetLength) {
-    const criteriaLabel = [
-      targetArea ? `${targetArea} m²` : null,
-      targetWidth ? `${targetWidth}×${targetLength} m` : null,
-    ]
-      .filter(Boolean)
-      .join(" i ");
+    let dimLabel = null;
+    if (targetWidth && targetLength) {
+      dimLabel = `${targetWidth}×${targetLength} m`;
+    } else if (targetWidth) {
+      dimLabel = `bok ~${targetWidth} m`;
+    } else if (targetLength) {
+      dimLabel = `bok ~${targetLength} m`;
+    }
+    const criteriaLabel = [targetArea ? `${targetArea} m²` : null, dimLabel].filter(Boolean).join(" i ");
 
     if (!data.matches || data.matches.length === 0) {
       sizeSearchResultsEl.innerHTML = `<div class="empty-hint">Nie znaleziono żadnej działki spełniającej naraz podane kryteria (${escapeHTML(
@@ -249,6 +257,14 @@
             `<span class="size-result-diff${sNeg && lNeg ? " negative" : ""}">wym. ${sNeg ? "" : "+"}${
               m.short_diff_pct
             }% / ${lNeg ? "" : "+"}${m.long_diff_pct}%</span>`
+          );
+        }
+        if (data.criteria && data.criteria.single_dimension) {
+          const neg = m.matched_side_diff_pct < 0;
+          parts.push(
+            `<span class="size-result-diff${neg ? " negative" : ""}">${escapeHTML(
+              m.matched_side_label
+            )} ${neg ? "" : "+"}${m.matched_side_diff_pct}%</span>`
           );
         }
         return `
