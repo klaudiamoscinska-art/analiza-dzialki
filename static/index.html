@@ -550,11 +550,13 @@
     </div>
 
     <div id="tabSzukaj" class="tab-content">
-      <p class="eyebrow">Szukaj działki po rozmiarze</p>
+      <p class="eyebrow">Szukaj działki</p>
       <p class="disclaimer" style="margin:0 0 12px;">
-        Podaj miejscowość i szukaną powierzchnię — pokażemy do 10 realnych
-        działek w tej okolicy o zbliżonym rozmiarze (±10%), od najbardziej do
-        najmniej podobnej.
+        Podaj miejscowość i dowolną kombinację: powierzchnię (±10%) i/lub
+        szerokość i długość (±20% każda, liczone jako najmniejszy prostokąt
+        otaczający działkę — rzadko jest ona idealnym prostokątem). Wypełnij
+        tyle pól, ile wiesz — wyniki uwzględnią wszystkie podane kryteria
+        naraz i pokażą do 10 najlepiej dopasowanych działek.
       </p>
 
       <div class="input-row">
@@ -564,8 +566,19 @@
       </div>
 
       <div class="filter-row" style="margin:10px 0;">
-        <label class="filter-label" for="sizeSearchArea">Szukana powierzchnia (m²)</label>
+        <label class="filter-label" for="sizeSearchArea">Powierzchnia (m²) — opcjonalnie</label>
         <input id="sizeSearchArea" type="number" inputmode="numeric" placeholder="np. 1200" />
+      </div>
+
+      <div class="filter-row filter-pair" style="margin:10px 0;">
+        <div>
+          <label class="filter-label" for="dimSearchWidth">Szerokość (m) — opcjonalnie</label>
+          <input id="dimSearchWidth" type="number" inputmode="numeric" placeholder="np. 20" />
+        </div>
+        <div>
+          <label class="filter-label" for="dimSearchLength">Długość (m) — opcjonalnie</label>
+          <input id="dimSearchLength" type="number" inputmode="numeric" placeholder="np. 50" />
+        </div>
       </div>
 
       <button id="sizeSearchBtn">
@@ -576,45 +589,7 @@
       <div id="sizeSearchErrorBox" class="error-box"></div>
       <div id="sizeSearchResults">
         <div class="empty-hint">
-          Podaj miejscowość i powierzchnię, aby zobaczyć listę najbardziej zbliżonych działek.
-        </div>
-      </div>
-
-      <p class="eyebrow" style="margin-top:26px;">Albo szukaj po wymiarach</p>
-      <p class="disclaimer" style="margin:0 0 12px;">
-        Podaj miejscowość oraz przybliżoną szerokość i długość działki —
-        pokażemy do 10 realnych działek, których oba wymiary (licząc
-        najmniejszy prostokąt otaczający działkę — rzadko jest ona idealnym
-        prostokątem) mieszczą się w granicach ±20%, od najlepiej do
-        najsłabiej dopasowanej.
-      </p>
-
-      <div class="input-row">
-        <input id="dimSearchPlace" type="text" inputmode="text" autocomplete="off"
-               placeholder="np. Zakopane" />
-        <button id="dimSearchPlaceClearBtn" aria-label="Wyczyść">✕</button>
-      </div>
-
-      <div class="filter-row filter-pair" style="margin:10px 0;">
-        <div>
-          <label class="filter-label" for="dimSearchWidth">Szerokość (m)</label>
-          <input id="dimSearchWidth" type="number" inputmode="numeric" placeholder="np. 20" />
-        </div>
-        <div>
-          <label class="filter-label" for="dimSearchLength">Długość (m)</label>
-          <input id="dimSearchLength" type="number" inputmode="numeric" placeholder="np. 50" />
-        </div>
-      </div>
-
-      <button id="dimSearchBtn">
-        <span id="dimSearchBtnLabel">Szukaj działek</span>
-        <span class="spinner" id="dimSearchSpinner"></span>
-      </button>
-
-      <div id="dimSearchErrorBox" class="error-box"></div>
-      <div id="dimSearchResults">
-        <div class="empty-hint">
-          Podaj miejscowość, szerokość i długość, aby zobaczyć listę najbardziej zbliżonych działek.
+          Podaj miejscowość i przynajmniej jedno kryterium (powierzchnię lub wymiary), aby zobaczyć listę najbardziej zbliżonych działek.
         </div>
       </div>
     </div>
@@ -623,6 +598,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>
