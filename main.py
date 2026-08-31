@@ -308,35 +308,57 @@ async def geocode_address_points(client: httpx.AsyncClient, query: str, max_resu
     return points
 
 
+async def _uldk_get_by_xy_raw(
+    client: httpx.AsyncClient, lon: float, lat: float, result_fields: str, max_retries: int = 2
+) -> Optional[list[str]]:
+    """Shared GetParcelByXY caller with a short retry for transient backend
+    failures. Confirmed live: individual powiat backends behind ULDK's
+    aggregation occasionally fail with 'Brak połączenia ze zbiorczą bazą'
+    (no connection to the aggregate database) even when the same query
+    succeeds moments later or moments before — this is intermittent
+    upstream flakiness, not a real 'no parcel here' answer (which instead
+    comes back as a plain '-1 brak wyników' with no such connection-error
+    text), so only THAT specific failure mode is retried."""
+    params = {
+        "request": "GetParcelByXY",
+        "xy": f"{lon},{lat},4326",
+        "result": result_fields,
+        "srid": "4326",
+    }
+    last_text = ""
+    for attempt in range(max_retries + 1):
+        try:
+            resp = await client.get(ULDK_URL, params=params)
+            resp.raise_for_status()
+            last_text = resp.text
+            lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
+            if len(lines) >= 2 and lines[0].strip() == "0":
+                return [f.strip() for f in lines[1].split("|")]
+            # A genuine "no parcel here" (no connection-error text) — retrying won't help.
+            if "połączenia" not in resp.text and "zbiorcz" not in resp.text:
+                return None
+        except Exception:
+            pass
+        if attempt < max_retries:
+            await asyncio.sleep(1.5)
+    return None
+
+
 async def find_parcel_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -> Optional[dict[str, str]]:
     """Given coordinates, finds the cadastral parcel at that point via ULDK's
     GetParcelByXY — the same official service used everywhere else in this
     app, just a different lookup mode."""
-    try:
-        params = {
-            "request": "GetParcelByXY",
-            "xy": f"{lon},{lat},4326",
-            "result": "id,voivodeship,county,commune,parcel",
-            "srid": "4326",
-        }
-        resp = await client.get(ULDK_URL, params=params)
-        resp.raise_for_status()
-        lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
-        if len(lines) < 2 or lines[0].strip() != "0":
-            return None
-        fields = [f.strip() for f in lines[1].split("|")]
-        if len(fields) < 5:
-            return None
-        teryt_id, voivodeship, county, commune, parcel_no = fields[:5]
-        return {
-            "teryt_id": teryt_id,
-            "voivodeship": voivodeship,
-            "county": county,
-            "commune": commune,
-            "parcel_no": parcel_no,
-        }
-    except Exception:
+    fields = await _uldk_get_by_xy_raw(client, lon, lat, "id,voivodeship,county,commune,parcel")
+    if fields is None or len(fields) < 5:
         return None
+    teryt_id, voivodeship, county, commune, parcel_no = fields[:5]
+    return {
+        "teryt_id": teryt_id,
+        "voivodeship": voivodeship,
+        "county": county,
+        "commune": commune,
+        "parcel_no": parcel_no,
+    }
 
 
 async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat: float) -> Optional[dict[str, Any]]:
@@ -344,21 +366,10 @@ async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat
     authoritative geodesic area (m^2) — same calculation method used by the
     main /api/analyze endpoint, so area figures are consistent across the
     whole app regardless of which search path found the parcel."""
+    fields = await _uldk_get_by_xy_raw(client, lon, lat, "id,voivodeship,county,commune,parcel,geom_wkt")
+    if fields is None or len(fields) < 6:
+        return None
     try:
-        params = {
-            "request": "GetParcelByXY",
-            "xy": f"{lon},{lat},4326",
-            "result": "id,voivodeship,county,commune,parcel,geom_wkt",
-            "srid": "4326",
-        }
-        resp = await client.get(ULDK_URL, params=params)
-        resp.raise_for_status()
-        lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
-        if len(lines) < 2 or lines[0].strip() != "0":
-            return None
-        fields = [f.strip() for f in lines[1].split("|")]
-        if len(fields) < 6:
-            return None
         teryt_id, voivodeship, county, commune, parcel_no, geom_raw = fields[:6]
         geometry = _parse_uldk_geometry(geom_raw)
         area_m2, _ = geod.geometry_area_perimeter(geometry)
