@@ -70,18 +70,87 @@ Używaj GitHub Contents API bezpośrednio przez `curl` w `bash_tool`:
 ## 3. Analiza Działki — pełna specyfikacja techniczna
 
 ### Struktura repo
+Backend był do 2026-09-01 jednym 1720-liniowym `main.py`; od tego dnia jest
+podzielony na moduły (identyczna logika, tylko przeniesiona — patrz `git log`
+dla commitu "Podziel main.py na moduły" jeśli potrzebujesz historii):
 ```
-main.py                      — cały backend FastAPI
-requirements.txt
-Dockerfile                   — MUSI kopiować main.py, wfs_powiat_registry.json, static/
-wfs_powiat_registry.json     — rejestr 380 bezpośrednich serwerów WFS per powiat
+main.py                      — tylko: FastAPI app, middleware, 4 trasy HTTP
+config.py                     — stałe: URL-e usług, warstwy, timeouty, tabele cen
+geo_utils.py                  — parsowanie/pomiary geometrii, czyszczenie tekstu
+http_utils.py                 — generyczne helpery HTTP (retry, Overpass, WMS GetFeatureInfo)
+services/
+  uldk.py                      — sekcja 0: lookupy ULDK (po punkcie, po ID/nr, skan obrębów)
+  geocoding.py                 — geokodowanie GUGiK (adresy, gminy) + resolve_address_to_parcels
+  wfs_search.py                 — "Szukaj działki": rejestr WFS, enumeracja+dopasowanie osi,
+                                   search_parcels_universal (najbardziej złożona część appki)
+  cadastre.py                   — sekcja 1: KIEG + budynki (OSM)
+  hazards.py                    — sekcja 2/4: osuwiska (SOPO), powódź (ISOK), podtopienia (PIG-PIB)
+  utilities.py                  — sekcja 3: media/GESUT (KIUT)
+  nearby_features.py            — droga gminna + cieki (oba z Overpass)
+  zoning.py                     — sekcja 5: plany zagospodarowania (KIAPP/KIMPZP)
+  valuation.py                  — sekcja 6/7: linki (GUNB/geoportal/e-mapa) + wycena statystyczna
+tests/                        — pytest dla logiki bez zależności sieciowych (patrz niżej)
+requirements.txt              — zależności produkcyjne (pinned)
+requirements-dev.txt          — + pytest/pytest-asyncio, do lokalnego dev/CI
+pytest.ini
+.github/workflows/ci.yml      — py_compile + pytest + import + walidacja JSON + node --check na JS
+Dockerfile                    — MUSI kopiować main.py+config.py+geo_utils.py+http_utils.py+
+                                 services/, wfs_powiat_registry.json, static/ (sprawdź to PIERWSZE,
+                                 jeśli dodasz nowy plik .py na topie repo albo nowy moduł w services/
+                                 — brakujący COPY tu daje dokładnie tę samą cichą awarię co kiedyś
+                                 z wfs_powiat_registry.json)
+wfs_powiat_registry.json     — rejestr 380 bezpośrednich serwerów WFS per powiat (wczytywany przez
+                                 services/wfs_search.py — ścieżka liczona względem project root,
+                                 NIE względem services/, bo plik JSON leży w topie repo)
 static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
   service-worker.js          — CACHE_NAME="analiza-dzialki-v3", network-first
-  icons/                     — ⚠️ BRAKUJE w repo obecnie (patrz sekcja 7, znane luki)
+  icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
+
+**Dlaczego podział:** `main.py` miał 1720 linii / 45 funkcji top-level w jednym
+pliku, bez testów. Podział 1:1 zachowuje dokładnie tę samą logikę (zweryfikowane:
+identyczny zestaw tras w `/openapi.json` przed/po, `pyflakes` bez ostrzeżeń na
+wszystkich nowych plikach, pełny lokalny smoke-test serwera, 30/30 testów pytest).
+Backend nie mógł być przetestowany end-to-end na żywo w sandboxie, w którym
+robiono ten refaktor — rządowe API (ULDK/WFS/Overpass/ISOK/PIG-PIB) są tam
+zablokowane przez proxy. **Jeśli po tej zmianie appka na Render zwraca 500 albo
+się nie uruchamia, sprawdź NAJPIERW logi startowe** (import mógł się nie udać) —
+ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobić bez
+sieci do prawdziwych usług.
+
+### Testy (pytest, dodane 2026-09-01)
+`tests/test_pure_logic.py` — 30 testów dla logiki bez zależności sieciowych:
+parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
+`_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
+e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
+pełna logika dopasowania/rankingu w `search_parcels_universal` (filtr
+powierzchni, filtr prostokątności, RMS, tryb `dims_as_maximum`, tryb
+pojedynczego wymiaru) przez monkeypatch `_gather_nearby_parcels` (żeby nie
+dotykać sieci). **Nie testują** samych wywołań do usług rządowych — do tego
+nadal służy metodologia z sekcji 8 (curl na żywo). Uruchom: `pip install -r
+requirements-dev.txt && pytest`.
+
+### Logging (dodane 2026-09-01)
+Wcześniej `main.py` nie miał żadnego loggera — błędy zewnętrznych usług były
+całkowicie ciche (`except Exception: pass`/`return {"status": "error", ...}`
+bez śladu po stronie serwera). Teraz każdy moduł ma `logger =
+logging.getLogger("analiza_dzialki")` (zdefiniowany raz w `config.py`,
+importowany wszędzie indziej) i loguje `logger.warning(...)` przy każdej
+awarii zewnętrznej usługi (WFS, ULDK, Overpass, SOPO, ISOK, PIG-PIB, KIEG,
+MPZP/APP, geokoder). To ułatwia odróżnianie przejściowych awarii od trwałych
+(patrz metodologia, sekcja 8, punkt 7) — sprawdzaj logi na Render, nie tylko
+odpowiedź API.
+
+### Timeouty i retry (dodane 2026-09-01)
+Timeouty są teraz nazwanymi stałymi w `config.py` (`TIMEOUT_WFS_POWIAT=45s`,
+`TIMEOUT_OVERPASS=14s` itd. — te same wartości co wcześniej, tylko
+scentralizowane) zamiast rozrzuconych literałów. WFS powiatowe (najbardziej
+zawodne z całej appki) mają teraz jeden retry z 2s opóźnieniem
+(`_get_with_retry` w `http_utils.py`) na błędy połączenia/timeoutu — wcześniej
+nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
@@ -241,6 +310,16 @@ Prosta, statyczna appka (jeden plik `index.html` ze wszystkim w środku —
 HTML+CSS+JS). Brak backendu — wszystko dzieje się w przeglądarce
 użytkowniczki, budując linki do zewnętrznych portali.
 
+### Struktura repo (od 2026-09-01)
+```
+index.html                 — cały HTML+CSS+JS (REGIONS, PORTALS, logika)
+service-worker.js           — CACHE_NAME="wyszukiwarka-dzialek-v1", network-first
+                               (ten sam wzorzec co w analiza-dzialki — patrz sekcja 3)
+manifest.json, icons/       — istniały już wcześniej
+README.md
+.github/workflows/ci.yml    — sprawdza składnię JS w <script>, service-worker.js, manifest.json
+```
+
 ### Funkcje
 - **26+9=35 konkretnych miejscowości górskich**, pogrupowanych w 9
   regionów (Tatry, Podhale, Beskid Żywiecki/Mały, Beskidy, Beskid
@@ -249,7 +328,14 @@ użytkowniczki, budując linki do zewnętrznych portali.
 - **Formularz filtrów**: rodzaj (działka/dom), region, cena od/do,
   powierzchnia od/do → generuje **5 linków naraz** (Otodom, OLX, Domiporta,
   Nieruchomości-online, GetHome) — każdy z osobnym, zweryfikowanym formatem
-  adresu URL tego portalu
+  adresu URL tego portalu. **Od 2026-09-01 skonfigurowane deklaratywnie**:
+  jedna tablica `PORTALS` (`{id, label, buildUrl(filters)}`) w `index.html`,
+  renderowana jedną pętlą — wcześniej było to 5 osobnych funkcji
+  (`buildOtodomUrl` itd.) plus osobny ręczny render dla każdej. **Dodanie
+  6. portalu = dopisanie jednego obiektu do `PORTALS`, nic więcej.**
+  Refaktor zweryfikowany przez porównanie bajt-po-bajcie 300 wygenerowanych
+  URL-i (60 kombinacji filtrów × 5 portali) między starą a nową wersją —
+  zero różnic.
 - **OLX zawsze sortuje od najnowszych** (`search[order]=created_at:desc`
   — potwierdzone, że to realnie działa). **Otodom NIE ma parametru
   sortowania w adresie URL** mimo sprawdzenia wielu wariantów — to trzeba
@@ -260,6 +346,11 @@ użytkowniczki, budując linki do zewnętrznych portali.
 - Link-out do ogólnej wyszukiwarki **Trovit** — ale **NIE agreguje
   Otodom/OLX** (sprawdzone: to metawyszukiwarka mniejszych/średnich
   portali), appka to teraz jasno komunikuje
+- **Service worker (od 2026-09-01)**: appka jest teraz instalowalna z
+  działającym trybem offline dla powłoki strony (index.html/manifest/ikony)
+  — wcześniej był tylko `manifest.json` bez service workera. Ten sam wzorzec
+  network-first co w Analiza Działki (żeby uniknąć problemu "appka nie widzi
+  zmian" opisanego w sekcji 3).
 
 ### ⚠️ Ślepe zaułki, których nie próbuj ponownie
 - **Scraping Otodom/OLX** (własny albo przez płatne usługi typu Apify) —
@@ -296,16 +387,42 @@ To były długie dochodzenia — nie powtarzaj ich, oto wynik:
 
 ## 7. Znane luki / rzeczy do ewentualnego dociągnięcia
 
-- **Folder `static/icons/` brakuje w repo `analiza-dzialki`** (potwierdzone
-  ponownie 2026-09-01 przy audycie kodu) — `manifest.json`
-  (`icon-192.png`, `icon-512.png`, `icon-512-maskable.png`), `index.html`
-  (`apple-touch-icon.png`, `icon-192.png`, `favicon.png`) i
-  `service-worker.js` (`APP_SHELL` z `icon-192.png`, `icon-512.png` w
-  `cache.addAll()`) odwołują się do plików, których w repo nie ma.
-  **To realne ryzyko, nie tylko kosmetyka**: `cache.addAll()` w
-  `service-worker.js` odrzuca całą instalację service workera, jeśli
-  choć jeden z URL-i 404-uje — czyli PWA/„dodaj do ekranu głównego" może
-  aktualnie w ogóle się nie instalować poprawnie. Priorytet: wysoki.
+**Rozwiązane 2026-09-01** (były tu opisane jako otwarte luki — zostawione
+dla historii, w razie regresji):
+- ~~Folder `static/icons/` brakuje~~ — dodane (5 plików, wygenerowane
+  programowo przez PIL/Pillow: prosty, płaski design działki geodezyjnej +
+  pinezka, w kolorze motywu appki). Zweryfikowane: wszystkie ścieżki z
+  `manifest.json`/`index.html`/`service-worker.js` zwracają 200. To wciąż
+  placeholder, nie finalne branding — jeśli Klaudia zechce własne logo,
+  podmień pliki w `static/icons/` (te same nazwy/rozmiary).
+- ~~Brak logowania w `main.py`~~ — dodane (patrz sekcja 3, "Logging").
+- ~~Timeouty rozrzucone i niespójne, brak retry dla WFS~~ — scentralizowane
+  + dodany retry (patrz sekcja 3, "Timeouty i retry").
+- ~~`main.py` to jeden plik, ~1720 linii bez podziału na moduły~~ —
+  podzielony na `config.py`/`geo_utils.py`/`http_utils.py`/`services/*`
+  (patrz sekcja 3, "Struktura repo").
+- ~~Brak testów automatycznych i CI/CD w obu repo~~ — dodane: pytest w
+  `analiza-dzialki` (30 testów logiki bez sieci) + GitHub Actions CI w
+  obu repo (py_compile/pytest/import w analiza-dzialki; składnia JS +
+  walidacja JSON w wyszukiwarka-dzialek). `nodemods/`+jsdom z metodologii
+  (sekcja 8, punkt 3) wciąż nie istnieje jako stały folder w repo — jsdom
+  był użyty ad-hoc do weryfikacji refaktoru portali w
+  wyszukiwarka-dzialek, poza repo, nie zostawiony na stałe.
+- ~~5 osobnych funkcji budowania URL portali w wyszukiwarka-dzialek~~ —
+  zrefaktorowane na jedną tablicę `PORTALS` (patrz sekcja 5).
+- ~~Brak service workera w wyszukiwarka-dzialek~~ — dodany.
+- ~~Zależności w `requirements.txt` sprzed ~2 lat~~ — zaktualizowane
+  (fastapi 0.115→0.128, uvicorn 0.30→0.34, httpx 0.27→0.28, shapely
+  2.0.6→2.1.2, pyproj 3.6→3.7, beautifulsoup4 4.12→4.13, pillow
+  10.4→11.3). Świadomie NIE do bezwzględnie najnowszych wersji (np.
+  pillow 12.x, fastapi 0.141.x istniały w momencie aktualizacji) — wybrano
+  bardziej zachowawczy skok, bo tego refaktoru nie dało się przetestować
+  end-to-end na żywo w sandboxie bez dostępu do rządowych API (patrz niżej).
+  Zweryfikowane: `pip install` bez konfliktów, `import main` się udaje,
+  serwer startuje i odpowiada na `/`, `/openapi.json`, `/api/*` (walidacja
+  400, nie testowano faktycznych wywołań zewnętrznych API).
+
+**Wciąż otwarte:**
 - **Powiat limanowski (1207)** był ręcznie dodany do rejestru WFS — jeśli
   pojawią się kolejne brakujące powiaty, wzorzec postępowania jest opisany
   w sekcji 4.
@@ -316,22 +433,18 @@ To były długie dochodzenia — nie powtarzaj ich, oto wynik:
   był (w momencie tworzenia tej integracji) prawie pusty ogólnokrajowo —
   będzie się automatycznie wypełniał w miarę wgrywania danych przez gminy,
   bez potrzeby zmian w kodzie.
-- **Brak logowania w `main.py`** (potwierdzone 2026-09-01) — zero
-  `logging`/`print`, a `except Exception: pass` w `_uldk_get_by_xy_raw`
-  cicho połyka błędy. Utrudnia to odróżnianie przejściowych awarii
-  serwerów powiatowych od trwałych (patrz metodologia, sekcja 8, punkt 7).
-- **Timeouty rozrzucone i niespójne (10–45s)** między wywołaniami do ULDK/
-  WFS/Overpass/ISOK, retry tylko w `_uldk_get_by_xy_raw`. Wolny serwer
-  powiatowy może zablokować request na pełne 45s bez fallbacku.
-- **`main.py` to jeden plik, ~1720 linii, 45 funkcji top-level**, bez
-  podziału na moduły — `search_parcels_universal` ma ~161 linii obsługując
-  4 tryby naraz. Kandydat do refaktoru na moduły (np. `services/wfs.py`,
-  `services/uldk.py`, `services/geo.py`), jeśli/kiedy zacznie przeszkadzać
-  w utrzymaniu.
-- **Brak testów automatycznych i CI/CD w obu repo** — `nodemods/`+jsdom
-  wspomniane w metodologii (sekcja 8, punkt 3) w praktyce nie istnieje w
-  repo `analiza-dzialki`. Całe testowanie jest manualne, zgodnie z
-  metodologią w sekcji 8.
+- **⚠️ Refaktor main.py (podział na moduły) i bump zależności NIE były
+  przetestowane end-to-end na żywo** — sandbox, w którym je zrobiono, nie
+  miał dostępu do ULDK/WFS/Overpass/ISOK/PIG-PIB (proxy blokuje te domeny,
+  potwierdzone: `uldk.gugik.gov.pl` → 403 od proxy). Weryfikacja była
+  ograniczona do: `py_compile`, `pyflakes` (zero ostrzeżeń), import,
+  identyczny zestaw tras w `/openapi.json` przed/po, boot serwera + smoke
+  test endpointów (walidacja błędów 400/404, statyczne pliki), symulacja
+  dokładnego zestawu plików kopiowanych przez Dockerfile, i 30 testów
+  pytest dla logiki bez sieci. **Po pierwszym deployu na Render sprawdź
+  ręcznie na żywo choć jedną prawdziwą analizę działki i jedno wyszukiwanie
+  "Szukaj działki"** — to jedyna rzecz, której nie dało się zweryfikować
+  przed pushem.
 
 ---
 
