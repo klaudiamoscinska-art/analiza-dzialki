@@ -1,7 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-httpx==0.27.2
-shapely==2.0.6
-pyproj==3.6.1
-beautifulsoup4==4.12.3
-pillow==10.4.0
+fastapi==0.128.0
+uvicorn[standard]==0.34.3
+httpx==0.28.1
+shapely==2.1.2
+pyproj==3.7.2
+beautifulsoup4==4.13.5
+pillow==11.3.0
