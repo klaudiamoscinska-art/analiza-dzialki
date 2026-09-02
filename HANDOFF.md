@@ -351,6 +351,19 @@ README.md
   — wcześniej był tylko `manifest.json` bez service workera. Ten sam wzorzec
   network-first co w Analiza Działki (żeby uniknąć problemu "appka nie widzi
   zmian" opisanego w sekcji 3).
+- **Usunięta (2026-09-02) statyczna sekcja „Bezpośrednio na portalu — domy"**
+  (4 linki: Otodom/OLX/Gratka/Morizon, bez żadnego filtra, tylko dla „domy").
+  Była myląca: nagłówek appki obiecywał wyniki „z Otodom, OLX, Gratki,
+  Morizon i innych", ale filtrowany formularz (region/cena/powierzchnia)
+  nigdy nie obejmował Gratki ani Morizon — te dwa portale istniały wyłącznie
+  jako niepowiązane, niefiltrowane linki na dole strony. Relikt z wczesnej
+  wersji (commit „Dodaj wiecej portali (dzialki+domy)", 21 sierpnia), sprzed
+  powstania właściwego mechanizmu `PORTALS`. Nagłówek appki poprawiony, żeby
+  wymieniał tylko 5 portali, które appka realnie obsługuje przez filtry
+  (Otodom, OLX, Domiporta, Nieruchomości-online, GetHome). **Jeśli
+  kiedykolwiek zechcesz dodać Gratkę/Morizon z powrotem — rób to przez
+  `PORTALS`, ze sprawdzonym na żywo formatem URL, tak jak resztę portali,
+  nie jako osobną, niefiltrowaną sekcję.**
 
 ### ⚠️ Ślepe zaułki, których nie próbuj ponownie
 - **Scraping Otodom/OLX** (własny albo przez płatne usługi typu Apify) —
