@@ -318,7 +318,47 @@ service-worker.js           — CACHE_NAME="wyszukiwarka-dzialek-v1", network-fi
 manifest.json, icons/       — istniały już wcześniej
 README.md
 .github/workflows/ci.yml    — sprawdza składnię JS w <script>, service-worker.js, manifest.json
+                               ⚠️ patrz niżej: realny błąd YAML, który tu był, i jak go znaleźć
 ```
+
+### CI był czerwony przez 2 dni (2026-09-01 do 2026-09-03) — prawdziwa przyczyna
+Trzy kolejne pushe do PR-a (`3d28299`, `926eab6`, `de6bd97`) dawały ten sam,
+mylący objaw: workflow kończył się `failure`, **0 uruchomionych jobów**,
+brak logów, GitHub odrzucał nawet ręczne ponowienie (`rerun_workflow_run`
+→ `403 This workflow run cannot be retried`). To wyglądało jak problem z
+uprawnieniami/ustawieniami repo (i tak to pierwotnie zdiagnozowano — błędnie),
+ale Klaudia potwierdziła, że „Actions permissions" było już ustawione na
+„Allow all actions and reusable workflows".
+
+**Prawdziwa przyczyna**: realny błąd składni YAML w `ci.yml`, linia 43.
+Krok „Waliduj manifest.json" miał jednoliniowe `run: node -e '...'` (bez
+bloku `|`), a treść tej komendy zawierała `"OK: manifest.json..."` —
+sekwencję **dwukropek+spacja** wewnątrz zwykłego (nieblokowego) skalara
+YAML. To jest zabronione w specyfikacji YAML (koliduje ze składnią
+`klucz: wartość`) i GitHub odrzuca cały plik workflow jako nieprawidłowy —
+stąd 0 jobów (GitHub nie mógł nawet sparsować pliku, więc nie było czego
+uruchomić) i błąd nie do ponowienia (nigdy nie było poprawnego runa do
+powtórzenia).
+
+**Jak to w końcu znaleziono**: `python3 -c "import yaml; yaml.safe_load(...)"`
+i lokalne `node -e` na samej treści komend nie łapały tego (sprawdzały
+tylko JS wewnątrz, nie strukturę samego YAML-a) — Python's PyYAML też
+parsował plik "poprawnie" dopóki błąd nie został naprawiony (po naprawie
+sparsował się bez błędu). **Jedyne miejsce, gdzie błąd był faktycznie
+widoczny, to strona pojedynczego runu na GitHub** (Actions → konkretny
+run → sekcja „Annotations"), NIE lista runów, NIE żadne API użyte tutaj
+(`list_workflow_runs`, `list_workflow_jobs`, `get_workflow` — żadne z nich
+nie zwróciło komunikatu błędu, tylko suchy status "failure"). Klaudia
+znalazła to dopiero po otwarciu konkretnego runu na telefonie i rozwinięciu
+„Show less/more" przy sekcji Annotations.
+
+**Wniosek na przyszłość**: jeśli GitHub Actions daje `failure` z **0 jobami**
+i nie da się ponowić — to prawie na pewno błąd składni w samym pliku
+`.yml`, nie problem z uprawnieniami repo. Sprawdzaj **najpierw** stronę
+pojedynczego runu (sekcja Annotations), zanim zaczniesz podejrzewać
+ustawienia konta/repo. I waliduj YAML lokalnie przez faktyczny parser YAML
+(`python3 -c "import yaml; yaml.safe_load(open('plik.yml'))"`), nie tylko
+przez wyciąganie i testowanie samej treści komend `run:`.
 
 ### Funkcje
 - **26+9=35 konkretnych miejscowości górskich**, pogrupowanych w 9
@@ -345,7 +385,9 @@ README.md
   prawdziwe alerty e-mail
 - Link-out do ogólnej wyszukiwarki **Trovit** — ale **NIE agreguje
   Otodom/OLX** (sprawdzone: to metawyszukiwarka mniejszych/średnich
-  portali), appka to teraz jasno komunikuje
+  portali). Od 2026-09-02 disclaimer pod przyciskiem Trovit mówi to
+  wprost ("nie obejmuje Otodom ani OLX") — wcześniej było to tylko
+  pośrednio sugerowane ogólnym opisem
 - **Service worker (od 2026-09-01)**: appka jest teraz instalowalna z
   działającym trybem offline dla powłoki strony (index.html/manifest/ikony)
   — wcześniej był tylko `manifest.json` bez service workera. Ten sam wzorzec
