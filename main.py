@@ -31,7 +31,11 @@ at dzialka-info.lovable.app):
 
 Map layers (frontend, toggleable):
   - EGiB (parcels + parcel numbers + buildings) — WMS tile overlay, KIEG
-  - MPZP (plany zagospodarowania)               — WMS tile overlay, KIMPZP
+  - MPZP (plany zagospodarowania, legacy)       — WMS tile overlay, KIMPZP
+  - Rejestr Urbanistyczny (plany, nowy system)  — WMS tile overlay, KIAPP
+  - Media / uzbrojenie terenu (GESUT)           — WMS tile overlay, KIUT
+                                                   (all six utility layers
+                                                   combined into one toggle)
   SOPO/hydrogeologia are NOT offered as map tile overlays: cbdgmapa.pgi.gov.pl
   is behind an Incapsula bot-mitigation WAF that intermittently blocks plain
   HTTP requests (confirmed live). Panel-only "identify" calls (unaffected by
