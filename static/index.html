@@ -336,6 +336,14 @@
     font-size:12px;
     padding:6px 8px !important;
     max-width:150px;
+    /* #map-wrap to tylko 40vh, a Leaflet przycina kontrolkę na granicy
+       kontenera mapy (.leaflet-container{overflow:hidden}) — bez tego
+       przy rozwinięciu obu grup (GESUT + Plany zagospodarowania) dolne
+       checkboxy stają się niewidoczne i nieklikalne. Własne przewijanie
+       zamiast twardego obcięcia. */
+    max-height:calc(40vh - 24px);
+    max-height:calc(40dvh - 24px);
+    overflow-y:auto;
   }
   .leaflet-control-layers-list label{
     display:flex;
@@ -349,28 +357,39 @@
     width:34px !important;
     height:34px !important;
   }
-  .gesut-subcategories{
-    margin:2px 0 0;
+  .layer-group-row{
+    margin-top:4px;
     padding-top:4px;
     border-top:1px solid var(--line);
   }
-  .gesut-subcategories summary{
+  .layer-group-row > label{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    margin:3px 0;
+    white-space:normal;
+    line-height:1.25;
+  }
+  .layer-subcategories{
+    margin:2px 0 0;
+  }
+  .layer-subcategories summary{
     cursor:pointer;
     font-size:11px;
     color:#5b6d67;
     list-style:none;
   }
-  .gesut-subcategories summary::-webkit-details-marker{ display:none; }
-  .gesut-subcategories summary::before{
+  .layer-subcategories summary::-webkit-details-marker{ display:none; }
+  .layer-subcategories summary::before{
     content:"▸ ";
   }
-  .gesut-subcategories[open] summary::before{
+  .layer-subcategories[open] summary::before{
     content:"▾ ";
   }
-  .gesut-subcategories:not([open]) label{
+  .layer-subcategories:not([open]) label{
     display:none;
   }
-  .gesut-subcategories[open] label{
+  .layer-subcategories[open] label{
     display:flex;
     align-items:center;
     gap:5px;
@@ -633,6 +652,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=14"></script>
+<script src="/static/app.js?v=15"></script>
 </body>
 </html>
