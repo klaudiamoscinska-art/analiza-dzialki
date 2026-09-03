@@ -106,7 +106,7 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v8", network-first,
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v9", network-first,
                                  fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
@@ -155,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=16.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=17.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -184,7 +184,7 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
    zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
    deployu, który dotyka `static/`. **Rób to przy każdej zmianie
    `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
-   Aktualny `CACHE_NAME`: `analiza-dzialki-v8`.
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v9`.
 3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
    błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
    (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
@@ -231,8 +231,8 @@ przełączać między kandydatami bez ponownego wyszukiwania.
 
 **Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
 GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;
-obie używają wspólnej funkcji `addLayerGroupRow(container, label, mainLayer,
-subcategories)`. Historia trzech iteracji tego dnia (2026-09-03), warto
+obie używają wspólnej funkcji `addLayerGroupRow(container, label,
+subcategories)`. Historia czterech iteracji tego dnia (2026-09-03), warto
 znać zanim dotkniesz tego kodu:
 1. **Płaskie checkboxy obok EGiB** (pierwsza wersja GESUT: 6 podkategorii
    jako osobne pozycje w `L.control.layers`) — Klaudia oceniła jako
@@ -254,6 +254,25 @@ znać zanim dotkniesz tego kodu:
    `addLayerGroupRow()` i doklejane do `layersControl.getContainer()` w
    kolejności wywołania — każdy rozwija się dokładnie pod swoim checkboxem,
    bez ryzyka nadpisania przez `_update()`.
+4. **Synchronizacja nadrzędny↔dzieci**: na życzenie Klaudii nadrzędny
+   checkbox teraz włącza/wyłącza WSZYSTKIE podkategorie naraz, a każda
+   podkategoria da się też przełączać osobno, z nadrzędnym odzwierciedlającym
+   stan dzieci (`input.indeterminate = true` — natywny wygląd przeglądarki,
+   myślnik zamiast znaczka — gdy włączona jest tylko część). Wymagało to
+   zmiany warstwy nadrzędnej z osobnego zapytania WMS (GESUT) / osobnego
+   `L.layerGroup` zbudowanego RAZ przy starcie (Plany zagospodarowania) na
+   `L.layerGroup` budowany WEWNĄTRZ `addLayerGroupRow()` z DOKŁADNIE TYCH
+   SAMYCH instancji warstw co podkategorie — inaczej odznaczenie jednej
+   podkategorii nie miałoby żadnego efektu wizualnego, bo nadrzędna warstwa
+   (osobna instancja) zostałaby na mapie bez zmian. Sygnatura funkcji się
+   zmieniła: `addLayerGroupRow(container, label, subcategories)` — bez
+   parametru `mainLayer`, budowany teraz wewnętrznie jako
+   `L.layerGroup(subcategories.map(([, layer]) => layer))`.
+   Zweryfikowane w Playwright (4 kroki): klik nadrzędnego zaznacza
+   wszystkie dzieci → odznaczenie jednego dziecka daje nadrzędnemu
+   `indeterminate=true` i kafelki pozostałych 5 nadal widoczne na mapie →
+   ponowne zaznaczenie tego dziecka wraca nadrzędny do w pełni
+   zaznaczonego → odznaczenie nadrzędnego odznacza wszystkie dzieci.
 - **Pułapka CSS**: reguła `label{display:flex}` bez `:not([open])`
   nadpisuje domyślne ukrywanie zamkniętego `<details>` przez przeglądarkę
   (selektor autorski ma wyższą specyficzność niż domyślna reguła UA) —
