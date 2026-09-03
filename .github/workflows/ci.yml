@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile-check all Python files
+        run: python -m py_compile main.py config.py geo_utils.py http_utils.py services/*.py
+
+      - name: Run pytest
+        run: pytest -q
+
+      - name: Import the app (catches missing files / import errors)
+        run: python -c "import main; print(len(main.app.routes), 'routes registered')"
+
+      - name: Validate wfs_powiat_registry.json
+        run: python -m json.tool wfs_powiat_registry.json > /dev/null
+
+      - name: Validate static/manifest.json
+        run: python -m json.tool static/manifest.json > /dev/null
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Syntax-check static/app.js
+        run: node --check static/app.js
+
+      - name: Syntax-check static/service-worker.js
+        run: node --check static/service-worker.js

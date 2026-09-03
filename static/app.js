@@ -59,6 +59,26 @@
       attribution: "GUGiK Rejestr Urbanistyczny",
     }
   );
+  // Media / uzbrojenie terenu (GESUT) — te same warstwy i ten sam serwer
+  // (KIUT GetMap), z którego panel „Media" już korzysta do wykrywania
+  // obecności mediów metodą pikselową (patrz services/utilities.py) — więc
+  // jeśli panel poprawnie wykrywa linie, ten sam GetMap powinien je też
+  // poprawnie narysować jako kafelki mapy. Wszystkie typy sieci w jednej
+  // warstwie/jednym przełączniku (wodociąg, kanalizacja, gaz, prąd,
+  // ciepłociąg, telekomunikacja) — kolory linii ustala sam serwer KIUT,
+  // nie mamy nad nimi kontroli przez proste WMS GetMap.
+  const gesutLayer = L.tileLayer.wms(
+    "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaUzbrojeniaTerenu",
+    {
+      layers:
+        "przewod_wodociagowy,przewod_kanalizacyjny,przewod_gazowy,przewod_elektroenergetyczny,przewod_cieplowniczy,przewod_telekomunikacyjny",
+      format: "image/png",
+      transparent: true,
+      version: "1.1.1",
+      maxZoom: 22,
+      attribution: "GUGiK GESUT",
+    }
+  );
   egibLayer.addTo(map);
 
   L.control
@@ -68,6 +88,7 @@
         "Działki i budynki (EGiB)": egibLayer,
         "Plan miejscowy — MPZP (starszy)": mpzpLayer,
         "Plan miejscowy — Rejestr Urbanistyczny": appLayer,
+        "Media / uzbrojenie terenu (GESUT)": gesutLayer,
       },
       { position: "topright", collapsed: false }
     )
