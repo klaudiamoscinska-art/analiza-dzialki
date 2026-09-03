@@ -822,12 +822,22 @@
     const zon = data.zoning;
     let zonInner = "";
     if (zon.status === "ok") {
-      zonInner =
-        zon.found === "yes"
-          ? `${zon.source ? `<p class="disclaimer">Źródło: ${escapeHTML(zon.source)}</p>` : ""}${tableHTML(
-              zon.table
-            )}`
-          : `<p>Brak planu miejscowego w tej lokalizacji (sprawdzono Rejestr Urbanistyczny i starszą usługę MPZP).</p>`;
+      if (zon.found === "yes") {
+        zonInner = `${zon.source ? `<p class="disclaimer">Źródło: ${escapeHTML(zon.source)}</p>` : ""}${tableHTML(
+          zon.table
+        )}`;
+        if (zon.mentions_plan_ogolny) {
+          zonInner += `<p class="disclaimer">Wśród danych pojawia się wzmianka o planie ogólnym gminy — to osobny akt od MPZP, sprawdź szczegóły w tabeli powyżej.</p>`;
+        }
+        if (zon.mentions_ouz) {
+          zonInner += `<p class="disclaimer">Wśród danych pojawia się wzmianka o obszarze uzupełnienia zabudowy (OUZ) — od 1 września 2026 to on decyduje o możliwości uzyskania warunków zabudowy tam, gdzie nie ma MPZP.</p>`;
+        }
+      } else {
+        zonInner = `<p>Brak planu miejscowego w tej lokalizacji (sprawdzono Rejestr Urbanistyczny i starszą usługę MPZP).</p>`;
+        if (zon.note) {
+          zonInner += `<p style="color:var(--danger);font-weight:600;">${escapeHTML(zon.note)}</p>`;
+        }
+      }
     } else if (zon.status === "partial") {
       zonInner = `<p style="color:var(--danger);font-weight:700;">Działka jest objęta planem miejscowym</p><p class="disclaimer">${escapeHTML(
         zon.message
@@ -843,6 +853,14 @@
         <h3>Pozwolenia na budowę (GUNB / RWDZ)</h3>
         <p>Rejestr RWDZ nie udostępnia otwartego API (wyszukiwanie chronione CAPTCHA) — dane trzeba sprawdzić ręcznie.</p>
         <a class="link-out-btn" href="${data.permits.gunb_link}" target="_blank" rel="noopener noreferrer">Sprawdź w rejestrze GUNB →</a>
+      </div>`;
+
+    // 6b — Księga wieczysta
+    html += `
+      <div class="card muted">
+        <h3>Księga wieczysta</h3>
+        <p>Stan prawny działki (właściciel, obciążenia, hipoteki, służebności) sprawdzisz w oficjalnej przeglądarce ksiąg wieczystych Ministerstwa Sprawiedliwości — potrzebny będzie numer księgi (zwykle w akcie notarialnym albo wypisie z rejestru gruntów).</p>
+        <a class="link-out-btn" href="${data.land_registry.ekw_link}" target="_blank" rel="noopener noreferrer">Otwórz przeglądarkę ksiąg wieczystych →</a>
       </div>`;
 
     // 7 — Wycena statystyczna (land + buildings, split)

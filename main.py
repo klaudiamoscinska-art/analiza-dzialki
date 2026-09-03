@@ -82,7 +82,7 @@ from services.uldk import (
     uldk_get_parcel, uldk_search_candidates,
 )
 from services.utilities import check_utilities
-from services.valuation import estimate_value, get_emapa_link, get_geoportal_link, get_gunb_link
+from services.valuation import estimate_value, get_ekw_link, get_emapa_link, get_geoportal_link, get_gunb_link
 from services.wfs_search import scan_wfs_for_parcel_number, search_parcels_universal
 from services.zoning import get_zoning
 
@@ -339,6 +339,7 @@ async def analyze(parcel_id: str = Query(default="")):
     gunb_link = get_gunb_link(parcel["parcel_no"])
     geoportal_link = get_geoportal_link(parcel["teryt_id"])
     emapa_link = get_emapa_link(parcel["teryt_id"])
+    ekw_link = get_ekw_link()
 
     return {
         "parcel": {
@@ -366,6 +367,7 @@ async def analyze(parcel_id: str = Query(default="")):
         },
         "nearest_road": nearest_road,
         "permits": {"gunb_link": gunb_link},
+        "land_registry": {"ekw_link": ekw_link},
         "valuation": valuation,
         "map_layers": {
             "egib": {"url": KIEG_URL, "layers": "dzialki,numery_dzialek,budynki"},
