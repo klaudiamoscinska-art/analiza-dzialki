@@ -553,3 +553,95 @@ async def test_geocode_powiat_gmina_prefixes_returns_empty_on_request_failure():
 
     result = await geocoding.geocode_powiat_gmina_prefixes(_FailingClient(), "suski")
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_geocode_powiat_gmina_prefixes_includes_coordinates_when_present():
+    # scan_wfs_for_parcel_number (wfs_search.py) needs an anchor lon/lat per
+    # gmina candidate — added 2026-09-03 alongside it.
+    data = [{"others": [
+        {"teryt": "1215052", "gm_nazwa": "Jordanów", "geometry": {"coordinates": [19.68, 49.63]}},
+    ]}]
+    result = await geocoding.geocode_powiat_gmina_prefixes(_FakePostClient(data), "suski")
+    assert result[0]["lon"] == 19.68
+    assert result[0]["lat"] == 49.63
+
+
+@pytest.mark.asyncio
+async def test_geocode_gmina_candidates_includes_coordinates_when_present():
+    data = [{"others": [
+        {
+            "teryt": "1215052", "gm_nazwa": "Jordanów", "pow_nazwa": "suski", "woj_nazwa": "małopolskie",
+            "geometry": {"coordinates": [19.68, 49.63]},
+        },
+    ]}]
+    result = await geocoding.geocode_gmina_candidates(_FakePostClient(data), "Jordanów")
+    assert result[0]["lon"] == 19.68
+    assert result[0]["lat"] == 49.63
+
+
+@pytest.mark.asyncio
+async def test_geocode_gmina_candidates_missing_geometry_omits_coordinates():
+    data = [{"others": [
+        {"teryt": "1215052", "gm_nazwa": "Jordanów", "pow_nazwa": "suski", "woj_nazwa": "małopolskie"},
+    ]}]
+    result = await geocoding.geocode_gmina_candidates(_FakePostClient(data), "Jordanów")
+    assert "lon" not in result[0]
+    assert "lat" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# services.wfs_search.scan_wfs_for_parcel_number — geometry-based fallback
+# for /api/resolve's 'Name Number' path (2026-09-03), added after Klaudia
+# confirmed a real parcel was unfindable by ANY ID-based ULDK query, and
+# reported the identical symptom on a different provider (polska.e-mapa.net)
+# for an unrelated parcel — findable only by browsing to a neighbour first.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_scan_wfs_for_parcel_number_matches_by_suffix(monkeypatch):
+    async def fake_enumerate(client, teryt_id, x_2180, y_2180, anchor_lon, anchor_lat, radius_m=None, max_features=None):
+        assert teryt_id == "121505_2.0000.0"
+        return [(19.68, 49.63), (19.69, 49.64), (19.70, 49.65)]
+
+    async def fake_find_parcel_by_xy(client, lon, lat):
+        by_point = {
+            (19.68, 49.63): {"teryt_id": "121505_2.0001.636/3", "commune": "Jordanów"},
+            (19.69, 49.64): {"teryt_id": "121505_2.0001.100", "commune": "Jordanów"},
+            (19.70, 49.65): None,
+        }
+        return by_point[(lon, lat)]
+
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+    monkeypatch.setattr(wfs_search, "find_parcel_by_xy", fake_find_parcel_by_xy)
+
+    result = await wfs_search.scan_wfs_for_parcel_number(None, 19.68, 49.63, "121505_2", "636/3")
+
+    assert len(result) == 1
+    assert result[0]["teryt_id"] == "121505_2.0001.636/3"
+
+
+@pytest.mark.asyncio
+async def test_scan_wfs_for_parcel_number_no_match_returns_empty(monkeypatch):
+    async def fake_enumerate(*args, **kwargs):
+        return [(19.68, 49.63)]
+
+    async def fake_find_parcel_by_xy(client, lon, lat):
+        return {"teryt_id": "121505_2.0001.999", "commune": "Jordanów"}
+
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+    monkeypatch.setattr(wfs_search, "find_parcel_by_xy", fake_find_parcel_by_xy)
+
+    result = await wfs_search.scan_wfs_for_parcel_number(None, 19.68, 49.63, "121505_2", "636/3")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_scan_wfs_for_parcel_number_enumerate_failure_returns_empty(monkeypatch):
+    async def fake_enumerate(*args, **kwargs):
+        raise RuntimeError("WFS server down")
+
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+
+    result = await wfs_search.scan_wfs_for_parcel_number(None, 19.68, 49.63, "121505_2", "636/3")
+    assert result == []
