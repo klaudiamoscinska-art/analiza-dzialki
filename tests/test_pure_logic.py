@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import uldk, valuation, wfs_search
+from services import geocoding, uldk, valuation, wfs_search
 
 
 # ---------------------------------------------------------------------------
@@ -496,3 +496,60 @@ async def test_find_parcel_by_id_direct_returns_none_when_not_found():
     client = _FakeClient("-1 nie znaleziono")
     result = await uldk.find_parcel_by_id_direct(client, "000000_0.0000.0/0")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# services.geocoding.geocode_powiat_gmina_prefixes — /api/resolve stage-4
+# fallback (2026-09-03): "Name" in "Name Number" might be a powiat, not a
+# gmina (e.g. "suski 636/3") - added after gmina- and obręb-name attempts
+# both failed to resolve a real, independently-verified parcel.
+# ---------------------------------------------------------------------------
+
+class _FakeJsonResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+class _FakePostClient:
+    def __init__(self, data):
+        self._data = data
+        self.last_json = None
+
+    async def post(self, url, json=None, timeout=None):
+        self.last_json = json
+        return _FakeJsonResponse(self._data)
+
+
+@pytest.mark.asyncio
+async def test_geocode_powiat_gmina_prefixes_extracts_and_dedupes_gminas():
+    data = [
+        {
+            "others": [
+                {"teryt": "1215052", "gm_nazwa": "Jordanów"},
+                {"teryt": "1215043", "gm_nazwa": "Bystra-Sidzina"},
+                {"teryt": "1215052", "gm_nazwa": "Jordanów"},  # duplikat
+            ]
+        }
+    ]
+    client = _FakePostClient(data)
+    result = await geocoding.geocode_powiat_gmina_prefixes(client, "suski")
+    assert client.last_json == {"reqs": [{"pow_nazwa": "suski"}]}
+    prefixes = {g["gmina_prefix"] for g in result}
+    assert prefixes == {"121505_2", "121504_3"}
+    assert len(result) == 2  # duplikat odfiltrowany
+
+
+@pytest.mark.asyncio
+async def test_geocode_powiat_gmina_prefixes_returns_empty_on_request_failure():
+    class _FailingClient:
+        async def post(self, url, json=None, timeout=None):
+            raise RuntimeError("network down")
+
+    result = await geocoding.geocode_powiat_gmina_prefixes(_FailingClient(), "suski")
+    assert result == []
