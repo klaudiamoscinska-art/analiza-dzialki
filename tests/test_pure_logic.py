@@ -374,6 +374,57 @@ async def test_gather_nearby_parcels_falls_back_to_powiat_geocoding(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_gather_nearby_parcels_powiat_searches_every_gmina_separately(monkeypatch):
+    # Klaudia zgłosiła na żywo (2026-09-03): pierwsza wersja zbierała
+    # WSZYSTKIE centroidy gmin do jednej mediany i szukała tylko w promieniu
+    # wokół niej - pokrywało to małą część powiatu. Naprawa: osobne
+    # zapytanie enumerate_parcel_points_in_area per gmina, z wynikami
+    # połączonymi w jedną listę kandydatów - działki z KAŻDEJ gminy muszą
+    # się pojawić w wyniku, nie tylko z gminy najbliższej medianie.
+    gminas = [
+        {"lon": 19.6, "lat": 49.7, "description": "Sucha Beskidzka"},
+        {"lon": 19.8, "lat": 49.6, "description": "Maków Podhalański"},
+        {"lon": 19.5, "lat": 49.8, "description": "Zawoja"},
+    ]
+    enumerate_calls = []
+
+    async def fake_address_geocode(client, query, max_results=15):
+        return []
+
+    async def fake_powiat_geocode(client, name):
+        return gminas
+
+    async def fake_find_parcel_by_xy(client, lon, lat):
+        return {"teryt_id": "121507_2.0001.1"}
+
+    async def fake_enumerate(client, teryt_id, x_2180, y_2180, anchor_lon, anchor_lat, radius_m=None, max_features=None):
+        enumerate_calls.append({"anchor_lon": anchor_lon, "max_features": max_features})
+        # Jeden unikalny punkt-kandydat per gmina, żeby dało się policzyć,
+        # z ilu różnych gmin faktycznie przyszły wyniki.
+        return [(anchor_lon, anchor_lat)]
+
+    async def fake_find_parcel_with_area_by_xy(client, lon, lat):
+        return {
+            "teryt_id": f"parcel-{lon}-{lat}", "voivodeship": "x", "county": "x", "commune": "x",
+            "parcel_no": "1", "area_m2": 1000.0, "short_side_m": 20.0, "long_side_m": 50.0,
+        }
+
+    monkeypatch.setattr(wfs_search, "geocode_address_points", fake_address_geocode)
+    monkeypatch.setattr(wfs_search, "geocode_powiat_gmina_points", fake_powiat_geocode)
+    monkeypatch.setattr(wfs_search, "find_parcel_by_xy", fake_find_parcel_by_xy)
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+    monkeypatch.setattr(wfs_search, "find_parcel_with_area_by_xy", fake_find_parcel_with_area_by_xy)
+
+    result = await wfs_search._gather_nearby_parcels(None, "Powiat suski")
+
+    assert len(enumerate_calls) == 3
+    assert {c["anchor_lon"] for c in enumerate_calls} == {19.6, 19.8, 19.5}
+    assert all(c["max_features"] == 166 for c in enumerate_calls)  # max(50, 500 // 3)
+    assert result["status"] == "ok"
+    assert len(result["parcels"]) == 3  # jedna działka z każdej z trzech gmin
+
+
+@pytest.mark.asyncio
 async def test_gather_nearby_parcels_no_powiat_fallback_for_normal_place(monkeypatch):
     # Zwykła nazwa miejscowości, dla której geokoder nic nie zwrócił, NIE
     # powinna wywoływać fallbacku powiatowego (nie zaczyna się od "Powiat ").
