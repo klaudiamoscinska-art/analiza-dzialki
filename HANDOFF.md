@@ -106,7 +106,7 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v10", network-first,
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v11", network-first,
                                  fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 33 testy dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 35 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -155,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=18.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=19.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -184,7 +184,7 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
    zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
    deployu, który dotyka `static/`. **Rób to przy każdej zmianie
    `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
-   Aktualny `CACHE_NAME`: `analiza-dzialki-v10`.
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v11`.
 3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
    błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
    (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
@@ -315,15 +315,25 @@ To jest najbardziej złożona część appki. Pełny pipeline:
 
 **Kryteria wyszukiwania (dowolna kombinacja, funkcja `search_parcels_universal`):**
 - **Powierzchnia** (±10%)
-- **Szerokość i długość razem** (±20% każda, dopasowanie niezależne od
+- **Szerokość i długość razem** (±10% każda — **zmienione z ±20% na
+  ±10% 2026-09-03 na życzenie Klaudii**, dopasowanie niezależne od
   kolejności — nie trzeba wiedzieć, które z dwóch podanych liczb to
   „szerokość")
 - **Jeden wymiar** (tylko w połączeniu z powierzchnią — sam jeden wymiar to
   za mało informacji, appka to blokuje z jasnym komunikatem)
 - **Tryb „maksimum"** (`dims_as_maximum=true`, checkbox w UI) — oba wymiary
-  wymagane, traktowane jako **twardy sufit**, nie przybliżenie. Sortowanie
+  wymagane, traktowane jako **twardy sufit**, nie przybliżenie (bez
+  koncepcji tolerancji, więc ta zmiana go nie dotyczy). Sortowanie
   wtedy inne: od najpełniej wykorzystujących dostępną przestrzeń (blisko
   limitu), nie od najbliższych jakiemuś celowi.
+- **Liczba wyników: bez limitu od 2026-09-03** (na życzenie Klaudii;
+  wcześniej `max_results=10` obcinał do 10 najlepszych). Teraz
+  `search_parcels_universal(..., max_results=None)` zwraca WSZYSTKIE
+  działki w promieniu ok. 2 km spełniające podane kryteria, posortowane
+  od najlepiej dopasowanej. `matches[:None]` w Pythonie to cała lista
+  (bez zmian w kodzie poza domyślną wartością parametru) — `max_results`
+  zostawiony jako parametr na wypadek, gdyby limit kiedyś jednak był
+  potrzebny (np. dla bardzo gęsto podzielonych osiedli).
 
 **Miniatura kształtu działki (od 2026-09-03)**: każdy wynik ma teraz mały
 SVG-obrys działki obok tekstu (`shape-thumb` w `static/index.html`/`app.js`).

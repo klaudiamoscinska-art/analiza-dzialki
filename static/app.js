@@ -432,10 +432,13 @@
       })
       .join("");
 
+    const matchDescription = asMax
+      ? `wszystkie ${data.matches.length}, które mieszczą się w podanym maksimum (${escapeHTML(criteriaLabel)})`
+      : `wszystkie ${data.matches.length}, które mieszczą się w ±10% względem ${escapeHTML(criteriaLabel)}`;
     sizeSearchResultsEl.innerHTML = `
       <p class="disclaimer" style="margin:0 0 10px;">Sprawdzono ${data.candidates_checked} działek w okolicy „${escapeHTML(
       data.search_center || ""
-    )}" — poniżej ${data.matches.length} najbardziej zbliżonych do ${escapeHTML(criteriaLabel)}, od najlepiej dopasowanej.</p>
+    )}" — poniżej ${matchDescription}, od najlepiej dopasowanej.</p>
       ${rows}`;
 
     sizeSearchResultsEl.querySelectorAll(".size-result-row").forEach((btn) => {

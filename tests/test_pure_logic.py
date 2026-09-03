@@ -309,6 +309,35 @@ async def test_search_no_criteria_returns_all_candidates_unfiltered(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_search_returns_all_matches_uncapped(monkeypatch):
+    # Klaudia zażyczyła sobie WSZYSTKICH pasujących działek, nie top-10 —
+    # 15 działek w tolerancji muszą wszystkie wrócić, żaden sztuczny limit.
+    parcels = {
+        str(i): _make_parcel(str(i), area_m2=1000 + i, short_side_m=20, long_side_m=50)
+        for i in range(15)
+    }
+    _patch_gather(monkeypatch, parcels)
+    result = await wfs_search.search_parcels_universal(None, "Testowo", target_area_m2=1000)
+    assert len(result["matches"]) == 15
+
+
+@pytest.mark.asyncio
+async def test_search_dimensions_use_10_percent_tolerance_not_20(monkeypatch):
+    # Wymiary teraz też ±10% (dawniej ±20%) — działka 15% poza celem musi
+    # zostać odrzucona, mimo że mieściłaby się w starej tolerancji.
+    parcels = {
+        "within_10pct": _make_parcel("within_10pct", area_m2=1000, short_side_m=21, long_side_m=50),
+        "within_15pct_only": _make_parcel("within_15pct_only", area_m2=1000, short_side_m=23, long_side_m=50),
+    }
+    _patch_gather(monkeypatch, parcels)
+    result = await wfs_search.search_parcels_universal(
+        None, "Testowo", target_width_m=20, target_length_m=50,
+    )
+    ids = {m["teryt_id"] for m in result["matches"]}
+    assert ids == {"within_10pct"}
+
+
+@pytest.mark.asyncio
 async def test_search_propagates_gather_error(monkeypatch):
     async def fake_gather_error(client, place_query):
         return {"status": "error", "message": "Nie znaleziono miejscowości."}
