@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import geocoding, uldk, valuation, wfs_search
+from services import geocoding, uldk, valuation, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -645,3 +645,83 @@ async def test_scan_wfs_for_parcel_number_enumerate_failure_returns_empty(monkey
 
     result = await wfs_search.scan_wfs_for_parcel_number(None, 19.68, 49.63, "121505_2", "636/3")
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# services.zoning — Plan Ogólny / OUZ keyword flags + "no plan" note, added
+# 2026-09-03 (competitor research turned up that the OUZ rule that took
+# effect 2026-09-01 makes "brak MPZP" no longer mean "warunki zabudowy
+# możliwe" — see HANDOFF.md). Best-effort keyword matching only, since
+# KIAPP's actual attribute schema can't be verified live in this sandbox.
+# ---------------------------------------------------------------------------
+
+def test_mentions_any_case_insensitive():
+    assert zoning._mentions_any("Ustalenia PLANU OGÓLNEGO gminy", zoning._PLAN_OGOLNY_KEYWORDS)
+    assert not zoning._mentions_any("Miejscowy plan zagospodarowania", zoning._PLAN_OGOLNY_KEYWORDS)
+
+
+def test_mentions_any_ouz_keyword():
+    assert zoning._mentions_any("działka leży w obszarze uzupełnienia zabudowy", zoning._OUZ_KEYWORDS)
+    assert not zoning._mentions_any("brak informacji o strefach", zoning._OUZ_KEYWORDS)
+
+
+class _FakeFeatureInfoResponse:
+    def __init__(self, text):
+        self.text = text
+
+
+@pytest.mark.asyncio
+async def test_try_zoning_source_sets_plan_ogolny_and_ouz_flags(monkeypatch):
+    html = (
+        "<table><tr><td>Rodzaj aktu</td><td>Plan ogólny gminy — strefa OUZ, "
+        "obszar uzupełnienia zabudowy nr 3</td></tr></table>"
+    )
+
+    async def fake_has_plan(client, url, layer, x, y, half_extent_m=15.0):
+        return True
+
+    async def fake_get_feature_info(client, url, layers, x, y, half_extent_m=15.0):
+        return _FakeFeatureInfoResponse(html)
+
+    monkeypatch.setattr(zoning, "_mpzp_has_plan_drawn", fake_has_plan)
+    monkeypatch.setattr(zoning, "wms_get_feature_info", fake_get_feature_info)
+
+    result = await zoning._try_zoning_source(None, "http://x", "layer", 0.0, 0.0, "Test")
+
+    assert result["found"] == "yes"
+    assert result["mentions_plan_ogolny"] is True
+    assert result["mentions_ouz"] is True
+
+
+@pytest.mark.asyncio
+async def test_try_zoning_source_no_flags_for_plain_mpzp(monkeypatch):
+    html = "<table><tr><td>Symbol</td><td>1MN — zabudowa jednorodzinna</td></tr></table>"
+
+    async def fake_has_plan(client, url, layer, x, y, half_extent_m=15.0):
+        return True
+
+    async def fake_get_feature_info(client, url, layers, x, y, half_extent_m=15.0):
+        return _FakeFeatureInfoResponse(html)
+
+    monkeypatch.setattr(zoning, "_mpzp_has_plan_drawn", fake_has_plan)
+    monkeypatch.setattr(zoning, "wms_get_feature_info", fake_get_feature_info)
+
+    result = await zoning._try_zoning_source(None, "http://x", "layer", 0.0, 0.0, "Test")
+
+    assert result["found"] == "yes"
+    assert result["mentions_plan_ogolny"] is False
+    assert result["mentions_ouz"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_zoning_attaches_ouz_note_when_no_plan_found_anywhere(monkeypatch):
+    async def fake_has_plan(client, url, layer, x, y, half_extent_m=15.0):
+        return False
+
+    monkeypatch.setattr(zoning, "_mpzp_has_plan_drawn", fake_has_plan)
+
+    result = await zoning.get_zoning(None, 0.0, 0.0)
+
+    assert result["found"] == "no"
+    assert "obszar" in result["note"].lower()
+    assert "2026" in result["note"]

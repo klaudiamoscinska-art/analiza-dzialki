@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 48 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 53 testy dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -427,6 +427,62 @@ znać zanim dotkniesz tego kodu:
 | Link „Polska mapa" | `mapy.geoportal.gov.pl/imap/?identifyParcel=TERYT` | **Stary viewer** (`/imap/`), NIE nowy (`/imapnext/`) — patrz sekcja 6 |
 | Link „Polska.e-mapa.net" | `https://polska.e-mapa.net?identifyParcel=TERYT` | Potwierdzone przez zrzut ekranu użytkowniczki z ich własnej funkcji „udostępnij" |
 | Link „Google Maps" | `https://www.google.com/maps?q={lat},{lon}` | Budowany z `centroid` już obliczanego przez appkę |
+| Plan ogólny / OUZ | Wzmianki wykrywane w tekście już pobieranym z KIAPP (bez nowego źródła) | Tylko keyword-matching, nie strukturalny parsing — patrz niżej |
+| Księga wieczysta | Ogólny link do przeglądarki EKW MS — **tylko link-out**, bez numeru KW | Brak numeru KW w żadnym już używanym źródle (ULDK/EGiB) |
+
+**Plan Ogólny / OUZ — dodane 2026-09-03, po analizie konkurencji (Działkopedia).**
+Kontekst: od 1 września 2026 r. (czyli już teraz) decyzję o warunkach
+zabudowy dla działki bez MPZP dostaje się TYLKO wtedy, gdy leży w
+obszarze uzupełnienia zabudowy (OUZ) wyznaczonym w planie ogólnym gminy —
+to zupełnie inna zasada niż wcześniej ("brak planu = można próbować o
+WZ"). Konkurencja (dzialkopedia.pl) ma to jako osobną, zdekodowaną daną
+per gmina; my NIE mamy strukturalnego dostępu do schematu atrybutów
+KIAPP (nie da się go zweryfikować na żywo w tym środowisku — patrz
+sekcja 6), więc zamiast zgadywać nazwy pól, `services/zoning.py` robi
+**tylko wyszukiwanie słów kluczowych** w tekście, który KIAPP i tak już
+zwraca (`_mentions_any` + `_PLAN_OGOLNY_KEYWORDS`/`_OUZ_KEYWORDS`) —
+`mentions_plan_ogolny`/`mentions_ouz` w odpowiedzi `found: "yes"`,
+wyświetlane jako dodatkowe wskazówki pod tabelą. Fałszywe negatywy
+(przeoczenie prawdziwej wzmianki) są akceptowalne, fałszywe pozytywy
+(twierdzenie że coś jest planem ogólnym/OUZ, gdy nie jest) — nie, stąd
+proste dopasowanie słów, a nie zgadywana struktura.
+
+Ważniejsza zmiana: gdy `found: "no"` (ani KIAPP, ani KIMPZP nic nie
+znalazły), `get_zoning()` dołącza teraz pole `note` z wyjaśnieniem
+dokładnie tej zasady — to jest miejsce w appce, gdzie ktoś mógłby
+wcześniej wyjść z fałszywym przekonaniem "nie ma planu, więc dostanę
+WZ". Wyświetlane w `app.js` jako czerwony akapit pod komunikatem o braku
+planu. 3 nowe testy pytest (`test_mentions_any_*`,
+`test_try_zoning_source_sets_plan_ogolny_and_ouz_flags`,
+`test_try_zoning_source_no_flags_for_plain_mpzp`,
+`test_get_zoning_attaches_ouz_note_when_no_plan_found_anywhere`).
+
+**Księga wieczysta — dodane 2026-09-03, ten sam powód.** Stan prawny
+(dział 02 audytu Działkopedii) był całkowitym brakiem w tej appce.
+`services/valuation.py::get_ekw_link()` zwraca ogólny link do
+`przegladarka-ekw.ms.gov.pl/eukw_ogl/menu.do` (oficjalna przeglądarka
+MS) — **NIE deep-link do konkretnej księgi**, bo żadne już używane
+źródło (ULDK, EGiB) nie zwraca numeru KW dla działki; osoba musi
+znać/znaleźć swój numer KW samodzielnie (zwykle w akcie notarialnym albo
+wypisie z rejestru gruntów). Ten sam wzorzec co istniejący `gunb_link`
+(sekcja "Pozwolenia na budowę" — też tylko link-out, bo RWDZ nie ma
+otwartego API). Nowa sekcja w `/api/analyze` (`land_registry.ekw_link`)
+i nowa karta w `app.js`. **URL NIE zweryfikowany na żywo** (domeny
+rządowe zablokowane w tym środowisku) — sprawdź ręcznie, że wciąż
+działa, zanim uznasz to za gotowe.
+
+Obie zmiany wynikają z opublikowanego wcześniej raportu-artefaktu
+"Rozpoznanie Działkopedii" (analiza funkcjonalności konkurencji +
+priorytetowy plan prac P0/P1/P2) — to pozycje z priorytetu P0. Reszta
+P0 (realna wycena z transakcji RCN zamiast stałej średniej GUS) **nie
+została zrobiona** — wymaga potwierdzenia, czy istnieje jakiekolwiek
+publicznie dostępne, niewymagające uwierzytelnienia źródło danych
+transakcyjnych RCN/RCiWN (Rejestr Cen i Wartości Nieruchomości), zanim
+warto zgadywać nazwę/URL kolejnej usługi KI* — w przeciwieństwie do
+KIMPZP/KIAPP/KIUT (nazwy i działanie potwierdzone wcześniej na żywo),
+nie mam żadnego potwierdzenia, że taka usługa w ogóle publicznie
+istnieje, więc świadomie tego nie zgadywałam. Do ustalenia z Klaudią,
+zanim ktoś zacznie to implementować.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

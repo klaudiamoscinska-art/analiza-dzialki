@@ -17,6 +17,33 @@ from config import (
 from geo_utils import _clean_feature_info_text, _feature_info_has_data, _parse_feature_info_table
 from http_utils import wms_get_feature_info
 
+# Keyword-based, best-effort detection of Plan Ogólny / OUZ mentions in
+# whatever KIAPP's GetFeatureInfo happens to return — added 2026-09-03.
+# NOT a structured parse of KIAPP's actual attribute schema (that schema
+# isn't verifiable live in this environment — see HANDOFF.md), just a
+# conservative text search so the UI can point out "this looks relevant"
+# without asserting a plan type or OUZ membership we can't actually confirm.
+# False negatives (missing a real mention) are acceptable; false positives
+# (claiming plan ogólny/OUZ when the text doesn't actually say so) are not
+# — hence keyword matching, never inference.
+_PLAN_OGOLNY_KEYWORDS = ("plan ogólny", "planu ogólnego", "planie ogólnym", "planem ogólnym")
+_OUZ_KEYWORDS = ("obszar uzupełnienia zabudowy", "obszaru uzupełnienia zabudowy", "obszarze uzupełnienia zabudowy", "(ouz)")
+
+_NO_PLAN_OUZ_NOTE = (
+    "Brak planu miejscowego (MPZP) dla tej działki. Od 1 września 2026 to już NIE oznacza "
+    "automatycznie, że można ubiegać się o warunki zabudowy — decyzję WZ dla zwykłej zabudowy "
+    "jednorodzinnej można dziś uzyskać tylko dla działek leżących w obszarze uzupełnienia "
+    "zabudowy (OUZ) wyznaczonym w planie ogólnym gminy. Plan ogólny to osobny akt od MPZP — "
+    "sprawdź go w Rejestrze Urbanistycznym (plany.gov.pl) lub w urzędzie gminy, zanim założysz, "
+    "że warunki zabudowy będą możliwe."
+)
+
+
+def _mentions_any(text: str, keywords: tuple[str, ...]) -> bool:
+    low = text.lower()
+    return any(kw in low for kw in keywords)
+
+
 async def _mpzp_has_plan_drawn(
     client: httpx.AsyncClient, url: str, layer: str, x_2180: float, y_2180: float, half_extent_m: float = 15.0
 ) -> bool:
@@ -59,7 +86,11 @@ async def _try_zoning_source(
         table = _parse_feature_info_table(resp.text)
         text = _clean_feature_info_text(resp.text)
         has_plan = _feature_info_has_data(text)
-        return {"status": "ok", "found": "yes" if has_plan else "no", "table": table, "source": source_label}
+        result = {"status": "ok", "found": "yes" if has_plan else "no", "table": table, "source": source_label}
+        if has_plan:
+            result["mentions_plan_ogolny"] = _mentions_any(text, _PLAN_OGOLNY_KEYWORDS)
+            result["mentions_ouz"] = _mentions_any(text, _OUZ_KEYWORDS)
+        return result
     except (httpx.TimeoutException, asyncio.TimeoutError):
         return {
             "status": "partial", "found": "yes", "table": [], "source": source_label,
@@ -82,7 +113,13 @@ async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) ->
     populate it — then falls back to the legacy KIMPZP zoning-symbol service
     if KIAPP has nothing here. Both use the same fast-GetMap-probe strategy
     (see _mpzp_has_plan_drawn) since KIMPZP's GetFeatureInfo has been
-    confirmed live to hang indefinitely for gminas without their own backend."""
+    confirmed live to hang indefinitely for gminas without their own backend.
+
+    When NEITHER source finds a plan, attaches a 'note' explaining the
+    Plan Ogólny / OUZ rule that took effect 2026-09-01 (added 2026-09-03,
+    see HANDOFF.md) — 'no MPZP' used to mean 'ask for warunki zabudowy
+    freely', which is no longer true, and this is the one place in the app
+    where someone would otherwise walk away with that outdated assumption."""
     result = await _try_zoning_source(client, KIAPP_URL, KIAPP_LAYERS, x_2180, y_2180, "Rejestr Urbanistyczny/APP")
     if result is not None:
         return result
@@ -91,5 +128,5 @@ async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) ->
     if result is not None:
         return result
 
-    return {"status": "ok", "found": "no", "table": []}
+    return {"status": "ok", "found": "no", "table": [], "note": _NO_PLAN_OUZ_NOTE}
 

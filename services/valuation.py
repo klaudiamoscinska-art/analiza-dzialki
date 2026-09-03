@@ -24,6 +24,24 @@ def get_geoportal_link(teryt_id: str) -> str:
     return f"https://mapy.geoportal.gov.pl/imap/?identifyParcel={teryt_id}"
 
 
+def get_ekw_link() -> str:
+    """Deep link to the official public land-and-mortgage-register browser
+    (Przeglądarka Ksiąg Wieczystych, ekw.ms.gov.pl / Ministerstwo
+    Sprawiedliwości) — added 2026-09-03. This is the one audit area
+    dzialkopedia.pl covers that this app has none of (see HANDOFF.md).
+    No deep-link to a specific KW is possible: ULDK's parcel response
+    (id,voivodeship,county,commune,parcel[,geom_wkt]) does not include a
+    KW number, and the EGiB cadastre doesn't expose one through any
+    endpoint already used in this app — the person has to already know or
+    look up their own parcel's KW number (usually on the notarial deed or
+    in the land/building register extract) to search it here. Same
+    'general link, not deep-linked' pattern as get_gunb_link's caveat
+    about RWDZ having no open search API. NOT verified live (government
+    domains are blocked in the sandbox this was written in) — confirm the
+    URL still resolves before relying on it."""
+    return "https://przegladarka-ekw.ms.gov.pl/eukw_ogl/menu.do"
+
+
 def get_emapa_link(teryt_id: str) -> str:
     """Deep link to the specific parcel on polska.e-mapa.net (Geo-System's
     portal, independent of GUGiK's own geoportal). Confirmed via the site's
