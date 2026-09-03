@@ -106,7 +106,7 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v9", network-first,
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v10", network-first,
                                  fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 30 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 33 testy dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -155,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=17.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=18.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -184,7 +184,7 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
    zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
    deployu, który dotyka `static/`. **Rób to przy każdej zmianie
    `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
-   Aktualny `CACHE_NAME`: `analiza-dzialki-v9`.
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v10`.
 3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
    błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
    (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
@@ -324,6 +324,25 @@ To jest najbardziej złożona część appki. Pełny pipeline:
   wymagane, traktowane jako **twardy sufit**, nie przybliżenie. Sortowanie
   wtedy inne: od najpełniej wykorzystujących dostępną przestrzeń (blisko
   limitu), nie od najbliższych jakiemuś celowi.
+
+**Miniatura kształtu działki (od 2026-09-03)**: każdy wynik ma teraz mały
+SVG-obrys działki obok tekstu (`shape-thumb` w `static/index.html`/`app.js`).
+Backend: `geo_utils._polygon_outline_normalized(geometry_2180)` bierze
+`geometry_2180` już obliczoną w `find_parcel_with_area_by_xy`
+(`services/uldk.py`) — nic nowego nie pobiera z sieci — upraszcza ją
+(`shapely .simplify`, próg 0.5m, twardszy 2m gdy nadal >40 wierzchołków,
+żeby payload nie puchł dla bardzo poszarpanych działek) i normalizuje do
+zakresu ~0..64 (dłuższy bok = 64, krótszy proporcjonalnie — prawdziwe
+proporcje kształtu zachowane, absolutny rozmiar nie, bo miniatura i tak
+go nie pokaże) z odwróconą osią Y (north-up — northing w EPSG:2180 rośnie
+w górę, SVG w dół). Nowe pole `shape_points` w każdym elemencie `matches[]`
+z `/api/search-by-parcel-size`. Frontend: `shapeThumbnailSVG()` w
+`static/app.js` buduje `<svg><polygon>` z tych punktów; pusta/brakująca
+tablica → nic się nie renderuje (nie błąd, tylko brak danych — nie
+powinno się zdarzać w praktyce, bo geometria zawsze jest dostępna razem z
+resztą pól tego samego obiektu, ale frontend i tak to obsługuje na
+wszelki wypadek). 3 nowe testy pytest dla `_polygon_outline_normalized`
+(proporcje zachowane, north-up, uproszczenie przy wielu wierzchołkach).
 
 **Trzy poprawki jakości dopasowania po wymiarach (ważne, nie usuwaj bez
 zastanowienia):**

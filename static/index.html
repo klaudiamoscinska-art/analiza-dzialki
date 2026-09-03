@@ -299,6 +299,21 @@
     color:var(--ok);
   }
   .size-result-diff.negative{ background:#fdf0e4; color:#a35d1f; }
+  .shape-thumb{
+    flex:0 0 auto;
+    width:38px;
+    height:38px;
+    background:#f3f6f4;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:3px;
+  }
+  .shape-thumb polygon{
+    fill:var(--ok-bg);
+    stroke:var(--survey);
+    stroke-width:3;
+    stroke-linejoin:round;
+  }
 
   .filter-row{ margin-bottom:0; }
   .filter-pair{ display:flex; gap:8px; }
@@ -652,6 +667,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=17"></script>
+<script src="/static/app.js?v=18"></script>
 </body>
 </html>

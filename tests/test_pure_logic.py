@@ -70,6 +70,42 @@ def test_rectangle_side_lengths_rotated_rectangle():
 
 
 # ---------------------------------------------------------------------------
+# geo_utils._polygon_outline_normalized
+# ---------------------------------------------------------------------------
+
+def test_polygon_outline_normalized_preserves_aspect_ratio():
+    # 10x30 rectangle -> longer side maps to target_size, shorter side
+    # scales proportionally (10/30 of target_size).
+    rect = Polygon([(1000, 2000), (1000, 2030), (1010, 2030), (1010, 2000)])
+    pts = geo_utils._polygon_outline_normalized(rect, target_size=60.0)
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    assert max(xs) - min(xs) == pytest.approx(20.0, abs=0.1)  # 10/30 * 60
+    assert max(ys) - min(ys) == pytest.approx(60.0, abs=0.1)
+
+
+def test_polygon_outline_normalized_is_north_up():
+    # The northernmost (higher y in EPSG:2180) point must map to the
+    # smallest SVG y (SVG y grows downward, projected northing grows up).
+    rect = Polygon([(0, 0), (0, 30), (10, 30), (10, 0)])
+    pts = geo_utils._polygon_outline_normalized(rect)
+    north_point_svg_y = next(svg_y for (x, y), (svg_x, svg_y) in zip(rect.exterior.coords, pts) if y == 30)
+    south_point_svg_y = next(svg_y for (x, y), (svg_x, svg_y) in zip(rect.exterior.coords, pts) if y == 0)
+    assert north_point_svg_y < south_point_svg_y
+
+
+def test_polygon_outline_normalized_simplifies_many_vertices():
+    # A near-circular polygon with 200 vertices should come back much
+    # smaller — a thumbnail doesn't need every survey point.
+    import math
+    circle = Polygon(
+        [(50 * math.cos(t), 50 * math.sin(t)) for t in [i * 2 * math.pi / 200 for i in range(200)]]
+    )
+    pts = geo_utils._polygon_outline_normalized(circle)
+    assert len(pts) < 100
+
+
+# ---------------------------------------------------------------------------
 # geo_utils._feature_info_has_data
 # ---------------------------------------------------------------------------
 

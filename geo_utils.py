@@ -66,6 +66,36 @@ def _rectangle_side_lengths(geometry_2180) -> tuple[float, float]:
     return (min(d1, d2), max(d1, d2))
 
 
+def _polygon_outline_normalized(geometry_2180, target_size: float = 64.0) -> list[list[float]]:
+    """Simplified outline points for a small shape-thumbnail (frontend draws
+    these as an inline SVG polygon next to search results). Normalized so
+    the longer side maps to target_size and the shorter side scales
+    proportionally — real aspect ratio is preserved, absolute size isn't
+    (a tiny icon can't show that anyway). Y is flipped (north-up) since
+    projected northing grows upward but SVG y grows downward.
+
+    Simplification (shapely .simplify, meters tolerance) keeps the response
+    small for parcels with many vertices — a thumbnail doesn't need every
+    cadastral survey point, and most residential/agricultural parcels are
+    near-rectangular anyway."""
+    poly = geometry_2180
+    if poly.geom_type != "Polygon":
+        poly = poly.convex_hull
+    simplified = poly.simplify(0.5, preserve_topology=True)
+    coords = list(simplified.exterior.coords)
+    if len(coords) > 40:
+        simplified = poly.simplify(2.0, preserve_topology=True)
+        coords = list(simplified.exterior.coords)
+
+    xs = [c[0] for c in coords]
+    ys = [c[1] for c in coords]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span = max(max_x - min_x, max_y - min_y) or 1.0
+    scale = target_size / span
+    return [[round((x - min_x) * scale, 1), round((max_y - y) * scale, 1)] for x, y in coords]
+
+
 _POLAND_BOUNDS = (13.5, 48.8, 24.7, 55.0)  # lon_min, lat_min, lon_max, lat_max
 
 
