@@ -250,12 +250,32 @@ zapytania `GetParcelById` (ten sam typ zapytania, którego już używa
 odpowiedzi między tymi dwoma typami zapytań, więc jeden może zadziałać
 tam gdzie drugi zawodzi). Wywoływane w `/api/resolve` gdy zapytanie
 wygląda jak pełny TERYT (≥2 kropki, brak spacji) i pierwsza próba nic
-nie zwróciła. **⚠️ NIE zweryfikowane na żywo** (ULDK zablokowany w
-sandboksie) — jeśli to też nie zadziała, prawdopodobnie ULDK po prostu
-nie ma tej konkretnej działki zaindeksowanej (luka pokrycia po stronie
-usługi, nie błąd kodu) — sprawdź to jako pierwsze, zanim szukasz dalej
-w tym miejscu. 2 nowe testy pytest (`find_parcel_by_id_direct` z fałszywym
+nie zwróciła. 2 nowe testy pytest (`find_parcel_by_id_direct` z fałszywym
 klientem HTTP — parsowanie udanej i nieudanej odpowiedzi).
+
+**To NIE wystarczyło** — Klaudia potwierdziła na żywo (2026-09-03), że
+`121505_2.0001.636/3` nadal nie jest znajdywane, na żadnej z trzech
+niezależnych ścieżek: surowy TERYT (`GetParcelByIdOrNr`), surowy TERYT
+(`GetParcelById`, ten fallback), ani "Jordanów 636/3" (skan obrębów
+gminy — `scan_gmina_obreby_for_parcel`, która też w środku woła
+`GetParcelById`). Wszystkie trzy w końcu odpytują ULDK o dokładnie ten
+sam identyfikator, więc zbieżna porażka wszystkich trzech to mocny
+sygnał, że **ULDK po prostu nie ma tej konkretnej działki
+zaindeksowanej** (potwierdzona istnieje w szerszym systemie EGiB — inny
+dostawca, polska.e-mapa.net/Geo-System, ją widzi) — nie błąd w naszym
+kodzie. `polska.e-mapa.net` też jest zablokowane w tym sandboksie
+(sprawdzone przez `WebFetch`), więc nie dało się tego zweryfikować z
+tej strony niezależnie.
+
+**Dodane zamiast czwartej ślepej próby**: logowanie surowej odpowiedzi
+ULDK w `uldk_search_candidates()` i `find_parcel_by_id_direct()`
+(`logger.info`, pierwsze 300 znaków tekstu odpowiedzi) przy każdym "nie
+znaleziono". Jeśli to się powtórzy, **sprawdź logi Render** zamiast
+zgadywać kolejną strategię zapytania — dokładny tekst odpowiedzi ULDK
+powinien jednoznacznie pokazać, czy to "brak w rejestrze" (nic do
+zrobienia po naszej stronie) czy coś diagnostycznie innego (błąd
+formatu, ukryty timeout w treści 200 OK, itp.), zamiast dalej zgadywać
+w ciemno bez możliwości zweryfikowania czegokolwiek na żywo.
 
 **Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
 GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;
