@@ -217,11 +217,17 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
     The median of ALL matched points is used instead — this stays put
     run-to-run (order-independent) and, being a median rather than a mean,
     is also robust to the rare case of an unrelated same-named place being
-    mixed into the results. Same reasoning applies when 'address_points' is
-    actually a list of per-gmina centroids from a 'Powiat X' query (see
-    below) — median-of-gminas gives a genuinely central anchor for the
-    whole powiat rather than picking one arbitrary gmina."""
+    mixed into the results.
+
+    A 'Powiat X' query is handled completely differently (see is_powiat_query
+    below): collapsing multiple gmina centroids down to ONE median point and
+    searching a single radius around it was tried first and confirmed live
+    2026-09-03 to cover only a small slice of the powiat (a powiat spans
+    several gminas often tens of km apart — one 15km circle around their
+    midpoint misses most of them). Fixed by searching around EACH gmina
+    centroid separately instead."""
     address_points = await geocode_address_points(client, place_query, max_results=40)
+    is_powiat_query = False
     if not address_points and place_query.lower().startswith(("powiat ", "pow. ", "pow ")):
         # "Powiat X" nie jest adresem ani miejscowością, więc darmowy
         # geokoder ('q' — patrz geocode_address_points) go nie zna. Zamiast
@@ -232,6 +238,7 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
         bare_name = place_query.split(" ", 1)[1].strip()
         if bare_name:
             address_points = await geocode_powiat_gmina_points(client, bare_name)
+            is_powiat_query = bool(address_points)
     if not address_points:
         return {"status": "error", "message": f"Nie znaleziono miejscowości '{place_query}'."}
 
@@ -254,9 +261,46 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
         }
 
     try:
-        candidate_points = await enumerate_parcel_points_in_area(
-            client, anchor_parcel["teryt_id"], x_2180, y_2180, anchor["lon"], anchor["lat"]
-        )
+        if is_powiat_query:
+            # Jedna warstwa WFS obsługuje cały powiat (patrz _lookup_wfs_config
+            # — klucz powiatowy to 99% wpisów w rejestrze), więc wszystkie
+            # zapytania per-gmina lecą do TEGO SAMEGO serwera, tylko z innym
+            # bboxem — bezpieczne do zrównoleglenia. max_features per gmina
+            # skalowany tak, żeby SUMA (nie promień!) zostawała bezpieczna —
+            # to ona determinuje liczbę downstream wywołań ULDK, patrz
+            # notatka w enumerate_parcel_points_in_area.
+            per_gmina_max_features = max(50, 500 // max(len(address_points), 1))
+            gmina_results = await asyncio.gather(
+                *[
+                    enumerate_parcel_points_in_area(
+                        client, anchor_parcel["teryt_id"],
+                        *to_2180.transform(p["lon"], p["lat"]), p["lon"], p["lat"],
+                        radius_m=10000.0, max_features=per_gmina_max_features,
+                    )
+                    for p in address_points
+                ],
+                return_exceptions=True,
+            )
+            candidate_points = []
+            errors = []
+            for result in gmina_results:
+                if isinstance(result, Exception):
+                    errors.append(result)
+                    logger.warning("Wyszukiwanie powiatowe: pominięto gminę po błędzie", exc_info=result)
+                    continue
+                candidate_points.extend(result)
+            if not candidate_points and errors and all(
+                "nie jest jeszcze w naszym rejestrze" in str(e) for e in errors
+            ):
+                # Wszystkie gminy tego powiatu biją się o ten sam serwer WFS
+                # (patrz komentarz o współdzielonym teryt_id wyżej) — jeśli
+                # WSZYSTKIE zawiodły z tym samym powodem, to nie "brak
+                # wyników", tylko realnie nieobsługiwany powiat.
+                raise errors[0]
+        else:
+            candidate_points = await enumerate_parcel_points_in_area(
+                client, anchor_parcel["teryt_id"], x_2180, y_2180, anchor["lon"], anchor["lat"]
+            )
     except Exception as exc:
         if "nie jest jeszcze w naszym rejestrze" in str(exc):
             return {

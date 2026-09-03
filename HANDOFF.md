@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 37 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 39 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -363,25 +363,34 @@ przeciążenia — dokładnie to, czego chcieliśmy uniknąć.
   funkcję `geocode_powiat_gmina_points()` (`services/geocoding.py`) o
   strukturalne pole `pow_nazwa` — dokładnie ten sam wzorzec, który już
   działa dla gmin (`geocode_gmina_candidates`, pole `gm_nazwa`, patrz
-  sekcja 3.2 wyżej o „Milówka 2994/4"). Zwraca środek (centroid) każdej
-  gminy w danym powiecie; mediana tych punktów staje się kotwicą — ta
-  sama logika odporności co przy medianie punktów adresowych dla zwykłej
-  miejscowości.
-  **⚠️ NIE zweryfikowane na żywo** — serwery rządowe (w tym geokoder GUGiK)
-  są zablokowane w sandboksie, w którym to pisano, więc nie dało się
-  potwierdzić, że pole `pow_nazwa` faktycznie istnieje/działa w tym API,
-  ani że odpowiedź zawiera geometrię (`item.geometry.coordinates`) dla
-  zapytań na poziomie powiatu tak samo jak dla adresów. Kod jest napisany
-  defensywnie (brak wyników → zwykły komunikat "nie znaleziono
-  miejscowości", bez wyjątku), więc w najgorszym razie funkcja po prostu
-  nic nie da, tak jak wcześniej. **Jeśli to nadal nie działa po
-  wdrożeniu**, sprawdź: (1) czy `pow_nazwa` to w ogóle prawidłowa nazwa
-  pola w tym API (może być inna, np. `powiat`, `pow`), (2) czy trzeba
-  słownej nazwy w mianowniku ("suski powiat"? "Sucha Beskidzka"?) zamiast
-  przymiotnikowej formy z URL-a/nazwy powiatu, (3) czy odpowiedź w ogóle
-  zawiera pole `geometry` dla zapytań `pow_nazwa` (możliwe że trzeba by
-  zamiast tego geokodować siedzibę powiatu po nazwie miasta — ale nie ma
-  tu gotowej tabeli powiat→siedziba).
+  sekcja 3.2 wyżej o „Milówka 2994/4"). **Potwierdzone na żywo przez
+  Klaudię 2026-09-03: `pow_nazwa` działa, "Powiat suski" faktycznie
+  zwraca wyniki.**
+- **Druga usterka, znaleziona przez Klaudię od razu po pierwszym teście
+  ("wyszukuje ale mało pozycji, chyba mały obszar")**: pierwsza wersja
+  brała medianę współrzędnych WSZYSTKICH centroidów gmin z powiatu i
+  szukała tylko w jednym promieniu (15km) wokół tego jednego punktu —
+  ale powiat to zwykle kilka gmin rozrzuconych na dziesiątki km, więc
+  jeden okrąg 15km wokół geograficznego środka realnie pokrywał tylko
+  wąski wycinek całego obszaru. **Naprawione**: `_gather_nearby_parcels`
+  ma teraz osobną gałąź dla zapytań powiatowych (`is_powiat_query`) —
+  zamiast jednej mediany, wywołuje `enumerate_parcel_points_in_area`
+  OSOBNO dla każdej gminy (współbieżnie, `asyncio.gather`), z mniejszym
+  promieniem per gmina (10km, wystarcza na typową gminę) i wyniki łączy
+  w jedną listę kandydatów. Wszystkie zapytania per-gmina lecą do TEGO
+  SAMEGO serwera WFS (jeden serwer obsługuje cały powiat — patrz
+  `_lookup_wfs_config`), więc to bezpieczne zrównoleglenie, nie N
+  niezależnych serwerów. `max_features` per gmina skalowany jako
+  `max(50, 500 // liczba_gmin)`, żeby SUMA (nie promień) zostawała w
+  tym samym bezpiecznym budżecie ok. 500 kandydatów co wcześniej —
+  to ona determinuje liczbę downstream wywołań ULDK, niezależnie od
+  tego ile gmin ma dany powiat. Jeśli WSZYSTKIE gminy zawiodą z tym
+  samym błędem "nie jest jeszcze w naszym rejestrze" (współdzielą ten
+  sam serwer, więc to spójny sygnał), błąd jest re-raise'owany zamiast
+  cicho zwracać pustą listę — użytkowniczka dostaje właściwy komunikat,
+  nie mylące "nic nie znaleziono". 2 nowe testy pytest weryfikujące ten
+  fan-out (osobne wywołanie per gmina, poprawne skalowanie
+  `max_features`, wyniki z KAŻDEJ gminy w finalnej liście).
 
 **Miniatura kształtu działki (od 2026-09-03)**: każdy wynik ma teraz mały
 SVG-obrys działki obok tekstu (`shape-thumb` w `static/index.html`/`app.js`).
