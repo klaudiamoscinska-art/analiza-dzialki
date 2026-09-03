@@ -39,22 +39,32 @@
   // (KIUT GetMap), z którego panel „Media" już korzysta do wykrywania
   // obecności mediów metodą pikselową (patrz services/utilities.py) — więc
   // jeśli panel poprawnie wykrywa linie, ten sam GetMap powinien je też
-  // poprawnie narysować jako kafelki mapy. Wszystkie typy sieci w jednej
-  // warstwie/jednym przełączniku (wodociąg, kanalizacja, gaz, prąd,
-  // ciepłociąg, telekomunikacja) — kolory linii ustala sam serwer KIUT,
-  // nie mamy nad nimi kontroli przez proste WMS GetMap.
-  const gesutLayer = L.tileLayer.wms(
-    "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaUzbrojeniaTerenu",
-    {
-      layers:
-        "przewod_wodociagowy,przewod_kanalizacyjny,przewod_gazowy,przewod_elektroenergetyczny,przewod_cieplowniczy,przewod_telekomunikacyjny",
-      format: "image/png",
-      transparent: true,
-      version: "1.1.1",
-      maxZoom: 22,
-      attribution: "GUGiK GESUT",
-    }
+  // poprawnie narysować jako kafelki mapy. Oprócz zbiorczego przełącznika
+  // (wszystkie sześć typów naraz) każdy typ sieci ma też własny, osobny
+  // przełącznik — kolory linii ustala sam serwer KIUT, nie mamy nad nimi
+  // kontroli przez proste WMS GetMap.
+  function gesutLayerFor(layersParam) {
+    return L.tileLayer.wms(
+      "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaUzbrojeniaTerenu",
+      {
+        layers: layersParam,
+        format: "image/png",
+        transparent: true,
+        version: "1.1.1",
+        maxZoom: 22,
+        attribution: "GUGiK GESUT",
+      }
+    );
+  }
+  const gesutLayer = gesutLayerFor(
+    "przewod_wodociagowy,przewod_kanalizacyjny,przewod_gazowy,przewod_elektroenergetyczny,przewod_cieplowniczy,przewod_telekomunikacyjny"
   );
+  const gesutWodociagLayer = gesutLayerFor("przewod_wodociagowy");
+  const gesutKanalizacjaLayer = gesutLayerFor("przewod_kanalizacyjny");
+  const gesutGazLayer = gesutLayerFor("przewod_gazowy");
+  const gesutElektroLayer = gesutLayerFor("przewod_elektroenergetyczny");
+  const gesutCieploLayer = gesutLayerFor("przewod_cieplowniczy");
+  const gesutTelekomLayer = gesutLayerFor("przewod_telekomunikacyjny");
   egibLayer.addTo(map);
 
   L.control
@@ -62,7 +72,13 @@
       null,
       {
         "Działki i budynki (EGiB)": egibLayer,
-        "Media / uzbrojenie terenu (GESUT)": gesutLayer,
+        "Media / uzbrojenie terenu (GESUT) — wszystkie": gesutLayer,
+        "— Wodociąg": gesutWodociagLayer,
+        "— Kanalizacja": gesutKanalizacjaLayer,
+        "— Gaz": gesutGazLayer,
+        "— Elektroenergetyka": gesutElektroLayer,
+        "— Ciepłociąg": gesutCieploLayer,
+        "— Telekomunikacja": gesutTelekomLayer,
       },
       { position: "topright", collapsed: false }
     )

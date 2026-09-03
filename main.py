@@ -31,9 +31,12 @@ at dzialka-info.lovable.app):
 
 Map layers (frontend, toggleable):
   - EGiB (parcels + parcel numbers + buildings) — WMS tile overlay, KIEG
-  - Media / uzbrojenie terenu (GESUT)           — WMS tile overlay, KIUT
-                                                   (all six utility layers
-                                                   combined into one toggle)
+  - Media / uzbrojenie terenu (GESUT)           — WMS tile overlay, KIUT;
+                                                   one combined "wszystkie"
+                                                   toggle plus 6 separate
+                                                   per-type toggles (water,
+                                                   sewage, gas, power,
+                                                   heating, telecom)
   Plany zagospodarowania (MPZP / Rejestr Urbanistyczny) are NOT offered as
   map tile overlays anymore — the two toggles proved confusing/low-signal
   on the live map; the tabular panel data (section 5 above) still covers
