@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 40 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 42 testy dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -250,12 +250,62 @@ zapytania `GetParcelById` (ten sam typ zapytania, którego już używa
 odpowiedzi między tymi dwoma typami zapytań, więc jeden może zadziałać
 tam gdzie drugi zawodzi). Wywoływane w `/api/resolve` gdy zapytanie
 wygląda jak pełny TERYT (≥2 kropki, brak spacji) i pierwsza próba nic
-nie zwróciła. **⚠️ NIE zweryfikowane na żywo** (ULDK zablokowany w
-sandboksie) — jeśli to też nie zadziała, prawdopodobnie ULDK po prostu
-nie ma tej konkretnej działki zaindeksowanej (luka pokrycia po stronie
-usługi, nie błąd kodu) — sprawdź to jako pierwsze, zanim szukasz dalej
-w tym miejscu. 2 nowe testy pytest (`find_parcel_by_id_direct` z fałszywym
+nie zwróciła. 2 nowe testy pytest (`find_parcel_by_id_direct` z fałszywym
 klientem HTTP — parsowanie udanej i nieudanej odpowiedzi).
+
+**To NIE wystarczyło** — Klaudia potwierdziła na żywo (2026-09-03), że
+`121505_2.0001.636/3` nadal nie jest znajdywane, na żadnej z trzech
+niezależnych ścieżek: surowy TERYT (`GetParcelByIdOrNr`), surowy TERYT
+(`GetParcelById`, ten fallback), ani "Jordanów 636/3" (skan obrębów
+gminy — `scan_gmina_obreby_for_parcel`, która też w środku woła
+`GetParcelById`). Wszystkie trzy w końcu odpytują ULDK o dokładnie ten
+sam identyfikator, więc zbieżna porażka wszystkich trzech to mocny
+sygnał, że **ULDK po prostu nie ma tej konkretnej działki
+zaindeksowanej** (potwierdzona istnieje w szerszym systemie EGiB — inny
+dostawca, polska.e-mapa.net/Geo-System, ją widzi) — nie błąd w naszym
+kodzie. `polska.e-mapa.net` też jest zablokowane w tym sandboksie
+(sprawdzone przez `WebFetch`), więc nie dało się tego zweryfikować z
+tej strony niezależnie.
+
+**Dodane zamiast czwartej ślepej próby**: logowanie surowej odpowiedzi
+ULDK w `uldk_search_candidates()` i `find_parcel_by_id_direct()`
+(`logger.info`, pierwsze 300 znaków tekstu odpowiedzi) przy każdym "nie
+znaleziono". Jeśli to się powtórzy, **sprawdź logi Render** zamiast
+zgadywać kolejną strategię zapytania — dokładny tekst odpowiedzi ULDK
+powinien jednoznacznie pokazać, czy to "brak w rejestrze" (nic do
+zrobienia po naszej stronie) czy coś diagnostycznie innego (błąd
+formatu, ukryty timeout w treści 200 OK, itp.), zamiast dalej zgadywać
+w ciemno bez możliwości zweryfikowania czegokolwiek na żywo.
+
+**Etap 4 w `/api/resolve` — szukanie przez powiat + numer (od 2026-09-03,
+na życzenie Klaudii)**: to NIE jest kolejna ślepa próba tego samego
+zapytania ULDK co wyżej — to nowa, dodatkowa interpretacja wpisanego
+tekstu. Wcześniej "Name Number" próbowało tylko: (2) "Name" = gmina, (3)
+"Name" = wzorzec numerowanego obrębu miasta. Teraz dochodzi (4) "Name" =
+**powiat** (np. "suski 636/3") — nowa funkcja
+`geocode_powiat_gmina_prefixes()` (`services/geocoding.py`, ten sam
+wzorzec `pow_nazwa` co już użyty w `geocode_powiat_gmina_points()` dla
+"Szukaj działki", ale zwraca `gmina_prefix` zamiast współrzędnych) +
+`scan_gmina_obreby_for_parcel()` uruchomiony dla KAŻDEJ gminy w tym
+powiecie. To pokrywa dokładnie przypadek Łętowni: nazwa obrębu nie jest
+nazwą gminy (etap 2 nie znajdzie), nie pasuje do wzorca numerowanego
+miasta (etap 3 nie znajdzie), ale nazwa powiatu ("suski") jest znana.
+Kosztowniejsze niż etapy 2-3 (skan wszystkich gmin powiatu × do 40
+obrębów każda, współbieżnie) — akceptowalne dla ręcznego, jednorazowego
+wyszukiwania, nie coś do wywoływania automatycznie/często. 2 nowe testy
+pytest (`geocode_powiat_gmina_prefixes` z fałszywym klientem HTTP —
+parsowanie + deduplikacja, i pusta lista przy błędzie sieci). **Też NIE
+zweryfikowane na żywo** — jeśli to zadziała, świetnie; jeśli nie, to
+kolejny mocny dowód na "ULDK nie ma tej działki", nie warty kolejnej
+próby innej kombinacji zapytań.
+
+**Uwaga dla przyszłej sesji**: Klaudia zwróciła też uwagę, że "po
+wpisaniu całego numeru powinna się odnaleźć bez dodatkowych pytań" — to
+już jest zaimplementowane poprawnie (`if len(candidates) == 1: return
+{"resolved": True, ...}` w `main.py` — brak pickera dla jednoznacznego
+trafienia), po prostu było niewidoczne, bo samo wyszukiwanie nic nie
+zwracało. Nie ma tu osobnego błędu do naprawienia — sprawdzenie się
+samo, jak tylko któryś z czterech etapów faktycznie znajdzie działkę.
 
 **Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
 GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;

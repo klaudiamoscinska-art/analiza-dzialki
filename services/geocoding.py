@@ -117,6 +117,40 @@ async def geocode_powiat_gmina_points(client: httpx.AsyncClient, powiat_name: st
     return points
 
 
+async def geocode_powiat_gmina_prefixes(client: httpx.AsyncClient, powiat_name: str) -> list[dict[str, str]]:
+    """Like geocode_powiat_gmina_points() above, but returns gmina TERYT
+    prefixes (for scan_gmina_obreby_for_parcel) instead of coordinates —
+    added 2026-09-03 for /api/resolve's 4th fallback tier: when someone
+    types 'Name Number' and Name is neither a real gmina nor a resolvable
+    obręb, try treating it as a POWIAT name and scan every gmina inside it.
+    Same 'pow_nazwa' structured field, same extraction pattern as
+    geocode_gmina_candidates() below (teryt -> gmina_prefix). NOT verified
+    live (see geocode_powiat_gmina_points for why)."""
+    try:
+        resp = await client.post(
+            GEOCODER_URL, json={"reqs": [{"pow_nazwa": powiat_name}]}, timeout=TIMEOUT_GEOCODER
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    seen: dict[str, dict[str, str]] = {}
+    for group in data:
+        for item in group.get("others", []) or ([group.get("single")] if group.get("single") else []):
+            if not item:
+                continue
+            gmina_teryt = item.get("teryt")
+            if not gmina_teryt or len(gmina_teryt) != 7:
+                continue
+            if gmina_teryt not in seen:
+                seen[gmina_teryt] = {
+                    "gmina_prefix": f"{gmina_teryt[:6]}_{gmina_teryt[6]}",
+                    "gm_nazwa": item.get("gm_nazwa", ""),
+                }
+    return list(seen.values())
+
+
 async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list[dict[str, str]]:
     """Resolves a plain gmina/place name to its gmina TERYT code(s) using
     GUGiK's own official free-text geocoding API (capap.gugik.gov.pl/api/fts —

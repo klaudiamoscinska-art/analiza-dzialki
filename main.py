@@ -72,7 +72,9 @@ from shapely.geometry import mapping
 from config import HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL
 from geo_utils import geod, to_2180
 from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
-from services.geocoding import geocode_gmina_candidates, resolve_address_to_parcels
+from services.geocoding import (
+    geocode_gmina_candidates, geocode_powiat_gmina_prefixes, resolve_address_to_parcels,
+)
 from services.hazards import check_landslide, get_flood_zone, get_waterlogging_risk
 from services.nearby_features import get_nearest_municipal_road, get_waterways
 from services.uldk import (
@@ -194,8 +196,10 @@ async def resolve_parcel(query: str = Query(default="")):
     a single resolved match (frontend proceeds straight to /api/analyze) or a
     list of candidates to disambiguate (frontend shows a picker).
 
-    Three-stage lookup:
-      1. Direct ULDK free-text 'ObrębName Numer' search (exact obręb name).
+    Four-stage lookup:
+      1. Direct ULDK free-text 'ObrębName Numer' search (exact obręb name),
+         plus (2026-09-03) a GetParcelById retry if the query is itself a
+         full TERYT id — see find_parcel_by_id_direct.
       2. If that finds nothing AND the query looks like 'Name Number': treat
          "Name" as a gmina/village name, resolve it to gmina TERYT code(s)
          via GUGiK's official geocoder (capap.gugik.gov.pl), then brute-force
@@ -206,7 +210,18 @@ async def resolve_parcel(query: str = Query(default="")):
       3. If that STILL finds nothing: try the '{Name}-{n}' numbered-precinct
          naming pattern directly via ULDK (see try_numbered_precinct_variants)
          — this is what resolves cases like 'Bochnia 6312/1', a city whose
-         own gmina isn't surfaced by the geocoder used in stage 2 at all."""
+         own gmina isn't surfaced by the geocoder used in stage 2 at all.
+      4. (2026-09-03, Klaudia's request) If that STILL finds nothing: treat
+         "Name" as a POWIAT name instead of a gmina — reuses
+         geocode_powiat_gmina_points() (built for 'Szukaj działki'), then
+         scans every obręb of every gmina in that powiat. Covers the case
+         where the obręb name someone types (e.g. 'Łętownia', a real village
+         but not itself a gmina) doesn't share a name with its gmina, but
+         the powiat name IS known — see 'Fallback GetParcelById' in
+         HANDOFF.md for the specific case this was added for. Bounded but
+         not small: a powiat can have several gminas, each scanned up to
+         MAX_OBREB_SCAN obręby concurrently — acceptable for a manual,
+         one-off search, not something to call in a hot loop."""
     query = query.strip()
     if len(query) < 3:
         raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
@@ -238,6 +253,20 @@ async def resolve_parcel(query: str = Query(default="")):
 
                 if not candidates:
                     candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
+
+                if not candidates:
+                    # Etap 4: "Name" mogła być powiatem, nie gminą (np.
+                    # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
+                    # tym powiecie. Patrz docstring wyżej i HANDOFF.md.
+                    powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
+                    scan_results = await asyncio.gather(
+                        *[
+                            scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part)
+                            for g in powiat_gminas
+                        ]
+                    )
+                    for hits in scan_results:
+                        candidates.extend(hits)
 
     if not candidates:
         raise HTTPException(

@@ -177,6 +177,15 @@ async def find_parcel_by_id_direct(client: httpx.AsyncClient, teryt_id: str) -> 
     resp.raise_for_status()
     lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
     if len(lines) < 2 or lines[0].strip() != "0":
+        # Zalogowana surowa odpowiedź (2026-09-03, na żywo nie do
+        # zweryfikowania w sandboksie) — jeśli to się powtórzy, sprawdź logi
+        # Render: konkretny tekst odpowiedzi ULDK powie na pewno, czy to
+        # "nie znaleziono" (luka danych, nie nasz błąd) czy coś innego
+        # (błąd formatu zapytania, timeout ukryty w treści 200 OK, itp).
+        logger.info(
+            "find_parcel_by_id_direct(%r): ULDK nie potwierdził (GetParcelById), surowa odpowiedź: %r",
+            teryt_id, resp.text[:300],
+        )
         return None
     fields = [f.strip() for f in lines[1].split("|")]
     if len(fields) < 5:
@@ -205,9 +214,14 @@ async def uldk_search_candidates(client: httpx.AsyncClient, query: str) -> list[
     resp.raise_for_status()
     lines = [ln for ln in resp.text.strip().split("\n") if ln != ""]
     if not lines:
+        logger.info("uldk_search_candidates(%r): pusta odpowiedź ULDK", query)
         return []
     first = lines[0].strip()
     if first.startswith("-1") or first == "0":
+        # Zalogowana surowa odpowiedź (2026-09-03) - patrz notatka w
+        # find_parcel_by_id_direct powyżej o tym, dlaczego to ważne dla
+        # odróżnienia "ULDK nie ma tej działki" od błędu po naszej stronie.
+        logger.info("uldk_search_candidates(%r): ULDK nie potwierdził, surowa odpowiedź: %r", query, resp.text[:300])
         return []
     try:
         count = int(first)
