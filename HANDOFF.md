@@ -106,7 +106,8 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v3", network-first
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v4", network-first,
+                                 fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
 
@@ -154,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=10.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=12.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -162,6 +163,33 @@ mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
 Backend ma też middleware wymuszający `Cache-Control: no-store` na
 wszystkich `/api/*` — to osobna warstwa ochrony przed cache'owaniem
 odpowiedzi API przez przeglądarkę (inny problem niż cache samego JS).
+
+**Trzeci, osobny poziom cache'owania — service worker + PWA dodana do
+ekranu głównego telefonu (potwierdzone na żywo 2026-09-03).** Nawet przy
+poprawnym cache-bustingu `app.js` i middleware `no-store` na `/api/*`,
+appka zainstalowana z ikonki na telefonie (zwłaszcza iOS Safari „Dodaj do
+ekranu głównego") może nadal pokazywać starą wersję UI, bo:
+1. `/static/*` (w tym `index.html` i `app.js`) nie ma jawnego nagłówka
+   `Cache-Control` (StaticFiles w main.py go nie ustawia) — przeglądarka
+   stosuje wtedy własną heurystykę i może serwować plik z dysku bez
+   zapytania do sieci, nawet gdy service worker robi `fetch()` „najpierw
+   sieć". Naprawione: `service-worker.js` teraz woła
+   `fetch(event.request, { cache: "no-store" })` i precache'uje
+   `APP_SHELL` przez `new Request(url, { cache: "reload" })` — obie ścieżki
+   wymuszają realne zapytanie do sieci, nie tylko odpytanie SW.
+2. iOS Safari w trybie „dodane do ekranu głównego" rzadko sprawdza, czy
+   plik `service-worker.js` się zmienił (rzadziej niż zwykła karta
+   przeglądarki) — SW może więc zostać stary przez dłuższy czas nawet po
+   deployu. Jedyny pewny sposób wymuszenia aktualizacji z naszej strony:
+   zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
+   deployu, który dotyka `static/`. **Rób to przy każdej zmianie
+   `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v4`.
+3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
+   błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
+   (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
+   nie pomoże, usunięcie i ponowne dodanie ikonki z ekranu głównego
+   wymusza świeżą rejestrację service workera.
 
 ### Endpointy API (aktualny stan)
 - `GET /api/resolve?query=...` — przyjmuje "Miejscowość numer" albo pełny

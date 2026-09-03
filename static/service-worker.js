@@ -7,8 +7,14 @@
 // wdrożony na serwerze mógł nigdy nie dotrzeć do przeglądarki, dopóki cache
 // nie wygasł ręcznie. Teraz zawsze próbujemy najpierw sieci — cache służy
 // wyłącznie jako awaryjny fallback, gdy urządzenie jest offline.
-
-const CACHE_NAME = "analiza-dzialki-v3";
+//
+// Potwierdzony na żywo drugi poziom cache'owania: `fetch()` bez opcji
+// używa domyślnego trybu HTTP-cache przeglądarki, a `/static/` nie ma
+// jawnego nagłówka Cache-Control (patrz main.py) — bez `cache: "no-store"`
+// "sieć najpierw" może i tak cicho oddać stary plik z dysku, zwłaszcza
+// w appce dodanej do ekranu głównego (iOS Safari rzadziej sprawdza
+// aktualizację service workera niż zwykła karta). Stąd `no-store` niżej.
+const CACHE_NAME = "analiza-dzialki-v4";
 const APP_SHELL = [
   "/",
   "/static/app.js",
@@ -19,7 +25,9 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" })))
+    )
   );
   self.skipWaiting();
 });
@@ -42,7 +50,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: "no-store" })
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
