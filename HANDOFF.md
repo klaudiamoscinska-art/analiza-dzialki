@@ -106,7 +106,7 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v6", network-first,
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v7", network-first,
                                  fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
@@ -155,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=14.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=15.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -184,7 +184,7 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
    zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
    deployu, który dotyka `static/`. **Rób to przy każdej zmianie
    `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
-   Aktualny `CACHE_NAME`: `analiza-dzialki-v6`.
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v7`.
 3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
    błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
    (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
@@ -226,8 +226,48 @@ przełączać między kandydatami bez ponownego wyszukiwania.
 | Ewidencja gruntów (klasoużytki, grupa rejestrowa, dokładniejsze dane) | KIEG WMS `GetFeatureInfo` | **Częściowo martwe** — dla wielu działek zwraca ogólny komunikat zamiast danych. Sprawdzone wielokrotnie, różne wersje WMS/CRS — to strukturalne ograniczenie usługi, nie błąd kodu |
 | Budynki (obrys, ale NIE liczba pięter/atrybuty) | OpenStreetMap Overpass API | KIEG/BDOT nie udostępniają atrybutów budynku przez żadne wolne API (potwierdzone) — OSM to najlepsza dostępna alternatywa, z zastrzeżeniem że dane mogą być niepełne |
 | Zagrożenie osuwiskowe | SOPO PIG-PIB, ArcGIS `identify` (NIE `GetFeatureInfo` — zablokowane przez WAF) | Działa dobrze |
-| Media/GESUT | KIUT, metoda pikselowa przez `GetMap` (GetFeatureInfo strukturalnie zepsute — zwraca ten sam komunikat zawsze) | Działa, ale to przybliżenie wizualne, nie dokładne atrybuty. **Od 2026-09-03 też jako warstwa mapy** ("Media / uzbrojenie terenu (GESUT)" w przełączniku obok EGiB, w `static/app.js`) — ten sam serwer KIUT co panel. **Potwierdzone na żywo przez Klaudię (2026-09-03): przełącznik działa, linie mediów faktycznie rysują się na mapie.** Od 2026-09-03 oprócz zbiorczego przełącznika jest też 6 osobnych podkategorii (Wodociąg/Kanalizacja/Gaz/Elektroenergetyka/Ciepłociąg/Telekomunikacja), każda jako osobna warstwa WMS GetMap z jednym `layers=` parametrem — funkcja `gesutLayerFor()` w `static/app.js` buduje je wszystkie z jednego szablonu. **Pierwsza wersja pokazywała te 6 podkategorii jako płaskie pozycje obok EGiB w `L.control.layers` — Klaudia słusznie oceniła to jako "brzydkie", bo nic nie sugerowało, że to podgrupa GESUT.** Naprawione tego samego dnia: podkategorie są teraz w rozwijanym `<details>`/`<summary>` ("Pojedyncze sieci") doklejonym bezpośrednio do kontenera kontrolki Leaflet (`layersControl.getContainer().appendChild(...)`) tuż pod wierszem "Media / uzbrojenie terenu (GESUT)" — domyślnie zwinięte, checkboxy podkategorii pojawiają się dopiero po rozwinięciu. Leaflet nie wspiera natywnie zagnieżdżonych grup w kontrolce warstw, więc to własny DOM doklejony obok — bezpieczne, bo `L.Control.Layers._update()` czyści tylko swoje wewnętrzne listy (`_baseLayersList`/`_overlaysList`), nie cały kontener. **Pułapka CSS, na którą już się natknęliśmy**: reguła `label{display:flex}` bez `:not([open])` nadpisuje domyślne ukrywanie zamkniętego `<details>` przez przeglądarkę (bo selektor autorski ma wyższą specyficzność niż domyślna reguła UA) — trzeba jawnie dodać `.gesut-subcategories:not([open]) label{display:none}`, inaczej podkategorie są "ukryte" tylko wizualnie zwinięte, ale nadal renderowane. Wszystkie warstwy wyłączone domyślnie. |
-| Plany zagospodarowania | **Dwa źródła próbowane po kolei**: (1) nowy `KrajowaIntegracjaAktowPlanowaniaPrzestrzennego` (Rejestr Urbanistyczny, wystartował 1 lipca 2026, **obecnie ogólnokrajowo prawie pusty** — gminy dopiero wgrywają dane), (2) stary `KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego` jako fallback | Oba używają strategii: `GetMap` (szybkie, niezawodne) jako sonda, dopiero potem `GetFeatureInfo` z limitem czasu (część serwerów gmin wisi w nieskończoność na `GetFeatureInfo`). **Od 2026-09-03 usunięte jako warstwy mapy** (dwa przełączniki "MPZP" i "Rejestr Urbanistyczny" w `static/app.js`, na życzenie Klaudii) — tabelaryczny panel z tą informacją (sekcja 5 w `main.py`) zostaje bez zmian, usunięte zostały tylko kafelki WMS na mapie. |
+| Media/GESUT | KIUT, metoda pikselowa przez `GetMap` (GetFeatureInfo strukturalnie zepsute — zwraca ten sam komunikat zawsze) | Działa, ale to przybliżenie wizualne, nie dokładne atrybuty. **Od 2026-09-03 też jako warstwa mapy** — zbiorczy checkbox "Media / uzbrojenie terenu (GESUT)" + 6 podkategorii (Wodociąg/Kanalizacja/Gaz/Elektroenergetyka/Ciepłociąg/Telekomunikacja) w rozwijanym `<details>` pod nim. **Potwierdzone na żywo przez Klaudię: przełącznik działa, linie mediów faktycznie rysują się na mapie.** Historia UI (żeby nie powtarzać tych samych błędów) — patrz notatka "Wzorzec: rozwijane podkategorie warstw mapy" niżej. |
+| Plany zagospodarowania | **Dwa źródła próbowane po kolei**: (1) nowy `KrajowaIntegracjaAktowPlanowaniaPrzestrzennego` (Rejestr Urbanistyczny, wystartował 1 lipca 2026, **obecnie ogólnokrajowo prawie pusty** — gminy dopiero wgrywają dane), (2) stary `KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego` jako fallback | Oba używają strategii: `GetMap` (szybkie, niezawodne) jako sonda, dopiero potem `GetFeatureInfo` z limitem czasu (część serwerów gmin wisi w nieskończoność na `GetFeatureInfo`). **Historia**: usunięte jako warstwy mapy 2026-09-03, przywrócone tego samego dnia na życzenie Klaudii — teraz zbiorczy checkbox "Plany zagospodarowania" (`L.layerGroup` z obu źródeł naraz, bo to dwa różne serwery WMS, nie da się połączyć w jedno GetMap jak w GESUT) + 2 podkategorie (MPZP starszy / Rejestr Urbanistyczny) w rozwijanym `<details>`. Tabelaryczny panel (sekcja 5 w `main.py`) bez zmian przez całą tę historię. |
+
+**Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
+GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;
+obie używają wspólnej funkcji `addLayerGroupRow(container, label, mainLayer,
+subcategories)`. Historia trzech iteracji tego dnia (2026-09-03), warto
+znać zanim dotkniesz tego kodu:
+1. **Płaskie checkboxy obok EGiB** (pierwsza wersja GESUT: 6 podkategorii
+   jako osobne pozycje w `L.control.layers`) — Klaudia oceniła jako
+   "brzydkie", bo nic nie sugerowało, że to podgrupa GESUT.
+2. **`<details>` wstrzyknięty do `L.control.layers`, ale tylko dla GESUT**
+   — zadziałało dla jednej grupy (bo była ostatnia w liście), ale przy
+   dodaniu drugiej grupy (Plany zagospodarowania) okazało się, że to
+   podejście nie skaluje się: `L.Control.Layers._update()` czyści tylko
+   swoje wewnętrzne listy (`_baseLayersList`/`_overlaysList`), więc
+   wstrzykiwanie wewnątrz nich znika przy pierwszym kliknięciu
+   jakiegokolwiek checkboxa — a doklejanie PO całej sekcji (jak zrobiono
+   dla GESUT) układa oba `<details>` jedno pod drugim na samym dole,
+   niezależnie od kolejności wierszy, więc rozwinięcie jednej grupy
+   wizualnie "podszywa się" pod inną.
+3. **Finalne rozwiązanie**: EGiB zostaje jedynym natywnym wpisem
+   `L.control.layers` (bez podkategorii, nie trzeba). GESUT i Plany
+   zagospodarowania to w pełni własne wiersze (`<div class="layer-group-row">`
+   z checkboxem + `<details class="layer-subcategories">`), budowane przez
+   `addLayerGroupRow()` i doklejane do `layersControl.getContainer()` w
+   kolejności wywołania — każdy rozwija się dokładnie pod swoim checkboxem,
+   bez ryzyka nadpisania przez `_update()`.
+- **Pułapka CSS**: reguła `label{display:flex}` bez `:not([open])`
+  nadpisuje domyślne ukrywanie zamkniętego `<details>` przez przeglądarkę
+  (selektor autorski ma wyższą specyficzność niż domyślna reguła UA) —
+  trzeba jawnie `.layer-subcategories:not([open]) label{display:none}`,
+  inaczej podkategorie są tylko wizualnie zwinięte, ale nadal renderowane
+  (i "widoczne" programowo, np. w testach).
+- **Pułapka wysokości**: `#map-wrap` to tylko `40vh`, a Leaflet ma
+  `.leaflet-container{overflow:hidden}` — przy rozwinięciu obu grup naraz
+  treść kontrolki bywa wyższa niż dostępna przestrzeń i zostaje po cichu
+  ucięta (dolne checkboxy niewidoczne i nieklikalne, bez żadnego błędu).
+  Naprawione przez `max-height:calc(40vh - 24px); overflow-y:auto;` na
+  `.leaflet-control-layers` — kontrolka przewija się sama zamiast tnąć
+  zawartość. Zweryfikowane w Playwright: `scrollHeight > clientHeight` przy
+  obu grupach rozwiniętych, a ostatni checkbox nadal klikalny po scrollu.
 | Hydrologia (cieki, powódź, podtopienia) | ISOK/Wody Polskie WMS + PIG-PIB + Overpass (cieki) | Działa dobrze |
 | Pozwolenia na budowę | GUNB/RWDZ — **tylko link-out**, brak API (CAPTCHA) | Nie próbuj scrapować — świadoma decyzja po analizie regulaminu |
 | Odległość do drogi gminnej | Overpass API, przybliżenie przez `highway=unclassified/residential` (OSM nie ma pola „kategoria zarządzania drogą") | Działa, ale to przybliżenie — jasno oznaczone w UI |

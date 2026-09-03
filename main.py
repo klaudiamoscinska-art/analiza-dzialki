@@ -29,18 +29,24 @@ at dzialka-info.lovable.app):
                                   buildings value (footprint area x assumed
                                   build cost/m^2)
 
-Map layers (frontend, toggleable):
-  - EGiB (parcels + parcel numbers + buildings) — WMS tile overlay, KIEG
+Map layers (frontend, toggleable, static/app.js):
+  - EGiB (parcels + parcel numbers + buildings) — WMS tile overlay, KIEG;
+                                                   flat checkbox in
+                                                   L.control.layers
   - Media / uzbrojenie terenu (GESUT)           — WMS tile overlay, KIUT;
-                                                   one combined "wszystkie"
-                                                   toggle plus 6 separate
-                                                   per-type toggles (water,
-                                                   sewage, gas, power,
-                                                   heating, telecom)
-  Plany zagospodarowania (MPZP / Rejestr Urbanistyczny) are NOT offered as
-  map tile overlays anymore — the two toggles proved confusing/low-signal
-  on the live map; the tabular panel data (section 5 above) still covers
-  both sources.
+                                                   combined toggle + 6
+                                                   per-type sub-toggles
+                                                   (water, sewage, gas,
+                                                   power, heating, telecom)
+  - Plany zagospodarowania                      — combined L.layerGroup of
+                                                   MPZP (legacy) + Rejestr
+                                                   Urbanistyczny (new), + 2
+                                                   per-source sub-toggles
+  GESUT and Plany zagospodarowania are NOT flat L.control.layers entries —
+  each is its own checkbox+<details> row appended directly to the control's
+  container (see addLayerGroupRow() in app.js), so their subcategories
+  expand right under their own checkbox instead of appearing as unrelated
+  flat items (first attempt did that and looked broken — fixed same day).
   SOPO/hydrogeologia are NOT offered as map tile overlays: cbdgmapa.pgi.gov.pl
   is behind an Incapsula bot-mitigation WAF that intermittently blocks plain
   HTTP requests (confirmed live). Panel-only "identify" calls (unaffected by
