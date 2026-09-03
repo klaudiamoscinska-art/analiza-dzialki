@@ -74,6 +74,49 @@ async def resolve_address_to_parcels(client: httpx.AsyncClient, query: str) -> l
     return list(seen.values())
 
 
+async def geocode_powiat_gmina_points(client: httpx.AsyncClient, powiat_name: str) -> list[dict[str, Any]]:
+    """Resolves a powiat (county) name to an anchor point for 'Szukaj
+    działki', by querying the structured 'pow_nazwa' field — mirrors the
+    already-proven 'gm_nazwa' pattern in geocode_gmina_candidates() below
+    (same API, same convention: query the administrative-level field you
+    want, not free text). NOT verified live against the real GUGiK
+    geocoder (government domains are blocked in the sandbox this was
+    written in) — added 2026-09-03 because Klaudia's search for literally
+    'Powiat suski' found nothing via the free-text 'q' field. If this
+    field name turns out wrong or the response has no per-gmina geometry,
+    this simply returns [] and the caller falls back to its existing
+    'nie znaleziono miejscowości' error — no crash either way, but please
+    confirm live whether a powiat name actually works before trusting this
+    comment further.
+
+    Returns one point per gmina in the powiat (its centroid, if the API
+    includes one) — the caller should combine these into a single anchor
+    (e.g. median), the same robustness principle already used for multiple
+    address points in _gather_nearby_parcels."""
+    try:
+        resp = await client.post(
+            GEOCODER_URL, json={"reqs": [{"pow_nazwa": powiat_name}]}, timeout=TIMEOUT_GEOCODER
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    points: list[dict[str, Any]] = []
+    for group in data:
+        for item in group.get("others", []) or ([group.get("single")] if group.get("single") else []):
+            if not item:
+                continue
+            coords = (item.get("geometry") or {}).get("coordinates")
+            if not coords or len(coords) != 2:
+                continue
+            points.append({
+                "lon": coords[0], "lat": coords[1],
+                "description": item.get("gm_nazwa") or item.get("shortDesc") or powiat_name,
+            })
+    return points
+
+
 async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list[dict[str, str]]:
     """Resolves a plain gmina/place name to its gmina TERYT code(s) using
     GUGiK's own official free-text geocoding API (capap.gugik.gov.pl/api/fts —

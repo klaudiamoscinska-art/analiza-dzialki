@@ -14,7 +14,7 @@ from shapely.geometry import shape
 from config import TIMEOUT_WFS_POWIAT, logger
 from geo_utils import geod, to_2180
 from http_utils import _get_with_retry
-from services.geocoding import geocode_address_points
+from services.geocoding import geocode_address_points, geocode_powiat_gmina_points
 from services.uldk import find_parcel_by_xy, find_parcel_with_area_by_xy
 
 # --------------------------------------------------------------------------
@@ -80,11 +80,27 @@ def _lookup_wfs_config(teryt_id: str) -> Optional[dict[str, Any]]:
 async def enumerate_parcel_points_in_area(
     client: httpx.AsyncClient, teryt_id: str, x_2180: float, y_2180: float,
     anchor_lon: float, anchor_lat: float,
-    radius_m: float = 2000.0, max_features: int = 500,
+    radius_m: float = 15000.0, max_features: int = 500,
 ) -> list[tuple[float, float]]:
     """Queries the specific powiat's own direct WFS server (looked up from
     the registry via teryt_id) for parcel geometries within a square area,
     returning one safe interior (lon, lat) point per geometry found.
+
+    radius_m default bumped from 2000 to 15000 (2026-09-03, Klaudia wanted
+    to search a whole powiat by name) — deliberately NOT a true whole-powiat
+    enumeration (a real powiat can hold tens of thousands of parcels; this
+    function's downstream caller resolves EVERY candidate point's full
+    geometry via a separate ULDK call per point, so an unbounded candidate
+    count means an unbounded burst of concurrent ULDK requests, real
+    timeout/overload risk against a government service — Klaudia explicitly
+    chose "bigger radius" over "true whole powiat, however slow" for this
+    reason). max_features stays at 500 on purpose — it's the actual safety
+    valve bounding how many downstream ULDK calls a single search can ever
+    trigger, independent of radius_m; in a dense area, a 500-feature cap at
+    15km radius means only the nearest few hundred meters get sampled
+    (however the WFS server happens to order results) rather than truly
+    covering the whole 15km — a known, accepted limitation of this
+    approach, not a bug.
 
     Axis order (northing,easting vs easting,northing) is determined ONCE per
     batch by comparing distance-to-anchor for both interpretations of the
@@ -197,12 +213,25 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
     locality (e.g. 40 different addresses for one village), and the
     geocoder does not return them in a stable order — picking address_points[0]
     meant the exact same search could silently anchor on a different house
-    each time, shifting the whole 2km search radius and changing the
-    results. The median of ALL matched points is used instead — this stays
-    put run-to-run (order-independent) and, being a median rather than a
-    mean, is also robust to the rare case of an unrelated same-named place
-    being mixed into the results."""
+    each time, shifting the whole search radius and changing the results.
+    The median of ALL matched points is used instead — this stays put
+    run-to-run (order-independent) and, being a median rather than a mean,
+    is also robust to the rare case of an unrelated same-named place being
+    mixed into the results. Same reasoning applies when 'address_points' is
+    actually a list of per-gmina centroids from a 'Powiat X' query (see
+    below) — median-of-gminas gives a genuinely central anchor for the
+    whole powiat rather than picking one arbitrary gmina."""
     address_points = await geocode_address_points(client, place_query, max_results=40)
+    if not address_points and place_query.lower().startswith(("powiat ", "pow. ", "pow ")):
+        # "Powiat X" nie jest adresem ani miejscowością, więc darmowy
+        # geokoder ('q' — patrz geocode_address_points) go nie zna. Zamiast
+        # tego pytamy o strukturalne pole 'pow_nazwa' (ten sam wzorzec co
+        # geocode_gmina_candidates dla gmin) — patrz komentarz w
+        # geocode_powiat_gmina_points o tym, że nie dało się tego
+        # zweryfikować na żywo w tym sandboksie.
+        bare_name = place_query.split(" ", 1)[1].strip()
+        if bare_name:
+            address_points = await geocode_powiat_gmina_points(client, bare_name)
     if not address_points:
         return {"status": "error", "message": f"Nie znaleziono miejscowości '{place_query}'."}
 

@@ -384,7 +384,7 @@
     if (!data.matches || data.matches.length === 0) {
       sizeSearchResultsEl.innerHTML = `<div class="empty-hint">Nie znaleziono żadnej działki spełniającej naraz podane kryteria (${escapeHTML(
         criteriaLabel
-      )}) w promieniu ok. 2 km od "${escapeHTML(
+      )}) w promieniu ok. 15 km od "${escapeHTML(
         data.search_center || ""
       )}". Sprawdzono ${data.candidates_checked || 0} działek w okolicy.</div>`;
       return;
