@@ -70,10 +70,19 @@
   // jedno zapytanie GetMap jak w GESUT), więc zbiorczy przełącznik to
   // L.layerGroup ogarniający oba naraz; podkategorie to te same dwie
   // warstwy osobno.
+  //
+  // "plany" (ogólna warstwa-grupa) NIE renderuje się niezawodnie —
+  // potwierdzone na żywo 2026-09-03 przez pobranie GetCapabilities tej
+  // usługi: gminy publikują plany albo jako raster, albo jako wektor
+  // (nigdy oba naraz), więc jedna generyczna nazwa nie trafia w to, czego
+  // akurat użyła dana gmina. Pytamy o wszystkie realne warstwy treści
+  // naraz (bez samych obrysów "granice"/"plany_granice" — te rysują tylko
+  // ramkę planu, nie jego treść) — ta sama lista co KIMPZP_LAYERS w
+  // config.py (backend), żeby panel i mapa były spójne.
   const mpzpLayer = L.tileLayer.wms(
     "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego",
     {
-      layers: "plany",
+      layers: "raster,wektor-str,wektor-lzb,wektor-pow,wektor-lin,wektor-pkt",
       format: "image/png",
       transparent: true,
       version: "1.1.1",

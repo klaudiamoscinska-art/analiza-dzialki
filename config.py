@@ -67,7 +67,14 @@ KIUT_LAYERS = [
 # queryable for the basic EGiB summary; building-level detail instead comes
 # from OpenStreetMap (see get_buildings_on_parcel).
 KIEG_LAYERS = "dzialki,kontury,uzytki"
-KIMPZP_LAYERS = "plany"
+# "plany" (the generic top-level/group layer) does NOT reliably render —
+# confirmed live 2026-09-03 by fetching this service's own GetCapabilities:
+# it's one name among several, and gminas publish either raster or vector
+# plans (never both), so a single generic name misses whichever format a
+# given gmina actually uses. Query all the real content leaf layers at
+# once instead (boundary-only "granice"/"plany_granice" deliberately
+# excluded — those just draw the plan's outline box, not its content):
+KIMPZP_LAYERS = "raster,wektor-str,wektor-lzb,wektor-pow,wektor-lin,wektor-pkt"
 
 # OpenStreetMap Overpass — used for two things ULDK/EGiB/GESUT can't give us
 # through any open API: (a) per-building footprints+attributes on the parcel,
