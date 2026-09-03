@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import valuation, wfs_search
+from services import uldk, valuation, wfs_search
 
 
 # ---------------------------------------------------------------------------
@@ -453,3 +453,46 @@ async def test_search_propagates_gather_error(monkeypatch):
     monkeypatch.setattr(wfs_search, "_gather_nearby_parcels", fake_gather_error)
     result = await wfs_search.search_parcels_universal(None, "Nieistniejąca Wieś", target_area_m2=1000)
     assert result["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# services.uldk.find_parcel_by_id_direct — GetParcelById fallback (2026-09-03,
+# added after Klaudia confirmed a real, valid TERYT id — verified
+# independently via polska.e-mapa.net — came back empty from the primary
+# GetParcelByIdOrNr lookup).
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+class _FakeClient:
+    def __init__(self, response_text):
+        self._response_text = response_text
+        self.last_params = None
+
+    async def get(self, url, params=None, timeout=None):
+        self.last_params = params
+        return _FakeResponse(self._response_text)
+
+
+@pytest.mark.asyncio
+async def test_find_parcel_by_id_direct_parses_successful_response():
+    client = _FakeClient("0\n121505_2.0001.636/3|małopolskie|suski|Jordanów|636/3")
+    result = await uldk.find_parcel_by_id_direct(client, "121505_2.0001.636/3")
+    assert result == {
+        "teryt_id": "121505_2.0001.636/3", "voivodeship": "małopolskie", "county": "suski",
+        "commune": "Jordanów", "parcel_no": "636/3",
+    }
+    assert client.last_params["request"] == "GetParcelById"
+
+
+@pytest.mark.asyncio
+async def test_find_parcel_by_id_direct_returns_none_when_not_found():
+    client = _FakeClient("-1 nie znaleziono")
+    result = await uldk.find_parcel_by_id_direct(client, "000000_0.0000.0/0")
+    assert result is None
