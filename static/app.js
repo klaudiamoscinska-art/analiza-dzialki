@@ -39,10 +39,12 @@
   // (KIUT GetMap), z którego panel „Media" już korzysta do wykrywania
   // obecności mediów metodą pikselową (patrz services/utilities.py) — więc
   // jeśli panel poprawnie wykrywa linie, ten sam GetMap powinien je też
-  // poprawnie narysować jako kafelki mapy. Oprócz zbiorczego przełącznika
-  // (wszystkie sześć typów naraz) każdy typ sieci ma też własny, osobny
-  // przełącznik — kolory linii ustala sam serwer KIUT, nie mamy nad nimi
-  // kontroli przez proste WMS GetMap.
+  // poprawnie narysować jako kafelki mapy. Każdy typ sieci to osobna
+  // warstwa WMS (nie jedno zbiorcze zapytanie) — dzięki temu zbiorczy
+  // przełącznik może być zwykłym L.layerGroup tych samych instancji co
+  // podkategorie (patrz addLayerGroupRow niżej), więc włączenie/wyłączenie
+  // pojedynczej podkategorii realnie zmienia to, co widać na mapie, nawet
+  // gdy włączono wszystko przełącznikiem zbiorczym.
   function gesutLayerFor(layersParam) {
     return L.tileLayer.wms(
       "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaUzbrojeniaTerenu",
@@ -56,9 +58,6 @@
       }
     );
   }
-  const gesutLayer = gesutLayerFor(
-    "przewod_wodociagowy,przewod_kanalizacyjny,przewod_gazowy,przewod_elektroenergetyczny,przewod_cieplowniczy,przewod_telekomunikacyjny"
-  );
   const gesutWodociagLayer = gesutLayerFor("przewod_wodociagowy");
   const gesutKanalizacjaLayer = gesutLayerFor("przewod_kanalizacyjny");
   const gesutGazLayer = gesutLayerFor("przewod_gazowy");
@@ -103,8 +102,6 @@
       attribution: "GUGiK Rejestr Urbanistyczny",
     }
   );
-  const zoningLayer = L.layerGroup([mpzpLayer, appLayer]);
-
   egibLayer.addTo(map);
 
   const layersControl = L.control
@@ -124,17 +121,26 @@
   // kontenera kontrolki, po całej sekcji Leaflet — dzięki temu każdy
   // rozwija się od razu pod swoim własnym checkboxem, niezależnie od
   // kolejności i bez ryzyka nadpisania.
-  function addLayerGroupRow(container, label, mainLayer, subcategories) {
+  // Nadrzędny checkbox włącza/wyłącza WSZYSTKIE podkategorie naraz;
+  // każda podkategoria da się też przełączać osobno — a nadrzędny
+  // checkbox po każdej takiej zmianie odzwierciedla stan dzieci
+  // (zaznaczony gdy wszystkie włączone, pusty gdy wszystkie wyłączone,
+  // "indeterminate" — natywny wygląd przeglądarki, myślnik zamiast
+  // znaczka — gdy włączona jest tylko część). To działa poprawnie tylko
+  // dlatego, że nadrzędna warstwa to L.layerGroup zbudowany z DOKŁADNIE
+  // TYCH SAMYCH instancji warstw co podkategorie (nie osobne zapytanie
+  // WMS) — więc odznaczenie jednej podkategorii realnie usuwa z mapy
+  // dokładnie tę jedną warstwę, niezależnie przez co została dodana.
+  function addLayerGroupRow(container, label, subcategories) {
     const wrapper = document.createElement("div");
     wrapper.className = "layer-group-row";
+
+    const subLayers = subcategories.map(([, layer]) => layer);
+    const mainGroup = L.layerGroup(subLayers);
 
     const mainRow = document.createElement("label");
     const mainInput = document.createElement("input");
     mainInput.type = "checkbox";
-    mainInput.addEventListener("change", () => {
-      if (mainInput.checked) mainLayer.addTo(map);
-      else map.removeLayer(mainLayer);
-    });
     mainRow.appendChild(mainInput);
     mainRow.appendChild(document.createTextNode(" " + label));
     wrapper.appendChild(mainRow);
@@ -144,6 +150,8 @@
     const summary = document.createElement("summary");
     summary.textContent = "Pojedyncze warstwy";
     details.appendChild(summary);
+
+    const subInputs = [];
     subcategories.forEach(([subLabel, layer]) => {
       const row = document.createElement("label");
       const input = document.createElement("input");
@@ -151,18 +159,36 @@
       input.addEventListener("change", () => {
         if (input.checked) layer.addTo(map);
         else map.removeLayer(layer);
+        syncMainCheckbox();
       });
       row.appendChild(input);
       row.appendChild(document.createTextNode(" " + subLabel));
       details.appendChild(row);
+      subInputs.push(input);
     });
     wrapper.appendChild(details);
+
+    function syncMainCheckbox() {
+      const checkedCount = subInputs.filter((i) => i.checked).length;
+      mainInput.checked = checkedCount === subInputs.length;
+      mainInput.indeterminate = checkedCount > 0 && checkedCount < subInputs.length;
+    }
+
+    mainInput.addEventListener("change", () => {
+      const turnOn = mainInput.checked;
+      mainInput.indeterminate = false;
+      subInputs.forEach((subInput) => {
+        subInput.checked = turnOn;
+      });
+      if (turnOn) mainGroup.addTo(map);
+      else map.removeLayer(mainGroup);
+    });
 
     container.appendChild(wrapper);
   }
 
   const layersContainer = layersControl.getContainer();
-  addLayerGroupRow(layersContainer, "Media / uzbrojenie terenu (GESUT)", gesutLayer, [
+  addLayerGroupRow(layersContainer, "Media / uzbrojenie terenu (GESUT)", [
     ["Wodociąg", gesutWodociagLayer],
     ["Kanalizacja", gesutKanalizacjaLayer],
     ["Gaz", gesutGazLayer],
@@ -170,7 +196,7 @@
     ["Ciepłociąg", gesutCieploLayer],
     ["Telekomunikacja", gesutTelekomLayer],
   ]);
-  addLayerGroupRow(layersContainer, "Plany zagospodarowania", zoningLayer, [
+  addLayerGroupRow(layersContainer, "Plany zagospodarowania", [
     ["MPZP (starszy)", mpzpLayer],
     ["Rejestr Urbanistyczny", appLayer],
   ]);
