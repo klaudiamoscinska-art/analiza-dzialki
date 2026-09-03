@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 39 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 40 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -228,6 +228,34 @@ przełączać między kandydatami bez ponownego wyszukiwania.
 | Zagrożenie osuwiskowe | SOPO PIG-PIB, ArcGIS `identify` (NIE `GetFeatureInfo` — zablokowane przez WAF) | Działa dobrze |
 | Media/GESUT | KIUT, metoda pikselowa przez `GetMap` (GetFeatureInfo strukturalnie zepsute — zwraca ten sam komunikat zawsze) | Działa, ale to przybliżenie wizualne, nie dokładne atrybuty. **Od 2026-09-03 też jako warstwa mapy** — zbiorczy checkbox "Media / uzbrojenie terenu (GESUT)" + 6 podkategorii (Wodociąg/Kanalizacja/Gaz/Elektroenergetyka/Ciepłociąg/Telekomunikacja) w rozwijanym `<details>` pod nim. **Potwierdzone na żywo przez Klaudię: przełącznik działa, linie mediów faktycznie rysują się na mapie.** Historia UI (żeby nie powtarzać tych samych błędów) — patrz notatka "Wzorzec: rozwijane podkategorie warstw mapy" niżej. |
 | Plany zagospodarowania | **Dwa źródła próbowane po kolei**: (1) nowy `KrajowaIntegracjaAktowPlanowaniaPrzestrzennego` (Rejestr Urbanistyczny, wystartował 1 lipca 2026, **obecnie ogólnokrajowo prawie pusty** — gminy dopiero wgrywają dane), (2) stary `KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego` jako fallback | Oba używają strategii: `GetMap` (szybkie, niezawodne) jako sonda, dopiero potem `GetFeatureInfo` z limitem czasu (część serwerów gmin wisi w nieskończoność na `GetFeatureInfo`). **Historia**: usunięte jako warstwy mapy 2026-09-03, przywrócone tego samego dnia na życzenie Klaudii — teraz zbiorczy checkbox "Plany zagospodarowania" (`L.layerGroup` z obu źródeł naraz, bo to dwa różne serwery WMS, nie da się połączyć w jedno GetMap jak w GESUT) + 2 podkategorie (MPZP starszy / Rejestr Urbanistyczny) w rozwijanym `<details>`. Tabelaryczny panel (sekcja 5 w `main.py`) bez zmian przez całą tę historię. **Zdiagnozowane i naprawione 2026-09-03 (dwa etapy — pierwsza diagnoza była błędna, patrz niżej)**: Klaudia zgłosiła "checkbox jest, ale warstwa się nie rysuje". Etap 1: zweryfikowane w Playwright (podstawione odpowiedzi WMS), że kod poprawnie wysyła `GetMap`; zapytana, czy panel tekstowy dla tego samego adresu też mówi "brak planu" — potwierdziła, że tak, więc wstępny wniosek brzmiał "to nie błąd, po prostu brak danych u źródła". **To była zbyt wczesna konkluzja.** Etap 2: Klaudia przysłała zrzut ekranu z oficjalnego viewera GEOPORTAL, gdzie dla TEJ SAMEJ okolicy po włączeniu warstwy "Plany zagospodarowania" (i jej dzieci: "Rysunki miejscowych planów...", "Granice opracowania...", "Studium") coś się jednak rysuje — sprzeczność z "brak danych". Poproszona o zrzut ekranu `GetCapabilities` usługi KIMPZP (bo sieć rządowa zablokowana w tym sandboksie, także dla `WebFetch`) — **ujawnił prawdziwą przyczynę**: `KIMPZP_LAYERS = "plany"` to nazwa ogólnej warstwy-grupy, która nie renderuje się niezawodnie; prawdziwe warstwy z treścią to `raster` (gminy z planami rastrowymi) i `wektor-str,wektor-lzb,wektor-pow,wektor-lin,wektor-pkt` (gminy z planami wektorowymi) — każda gmina publikuje TYLKO jeden z tych dwóch formatów, więc jedna generyczna nazwa `"plany"` nigdy nie trafiała w oba. **Naprawione**: `KIMPZP_LAYERS` w `config.py` (używane przez backend: i sondę `GetMap`, i `GetFeatureInfo` panelu) oraz osobna, zduplikowana definicja w `static/app.js` (`mpzpLayer`) — obie zmienione na `"raster,wektor-str,wektor-lzb,wektor-pow,wektor-lin,wektor-pkt"`. To naprawia jednocześnie panel tekstowy I mapę, bo obie ścieżki dotąd używały tej samej złej nazwy `"plany"`. **Lekcja na przyszłość**: gdy WMS "działa" (zwraca 200, poprawny PNG) ale wizualnie nic nie pokazuje mimo że dane na pewno gdzieś są (potwierdzone np. w oficjalnym viewerze GUGiK) — nie zakładaj automatycznie "brak danych", sprawdź `GetCapabilities` tej usługi (`?SERVICE=WMS&REQUEST=GetCapabilities&VERSION=1.1.1` na tym samym URL-u) pod kątem tego, czy używana nazwa warstwy to faktycznie renderowalna warstwa z treścią, czy tylko nazwa grupy/kontenera. **KIAPP (`layers=app`, Rejestr Urbanistyczny) NIE był tak sprawdzony** — możliwe, że ma tę samą klasę błędu, ale HANDOFF już wcześniej dokumentował ten rejestr jako "ogólnokrajowo prawie pusty", więc na razie zostawione bez zmian; jeśli problem z tą warstwą wróci, zrób ten sam test `GetCapabilities` na `KrajowaIntegracjaAktowPlanowaniaPrzestrzennego` zanim uznasz to za brak danych. |
+
+**Fallback `GetParcelById` w `/api/resolve` (od 2026-09-03)**: Klaudia
+zgłosiła, że ręczne wpisanie poprawnego, zweryfikowanego identyfikatora
+TERYT (`121505_2.0001.636/3`, obręb Łętownia, gmina Jordanów, powiat
+suski — sprawdzone niezależnie przez polska.e-mapa.net, inny dostawca
+danych EGiB) w "Analiza działki" dawało "nie znaleziono", mimo że
+działka realnie istnieje. Próba obejścia przez wpisanie "Łętownia
+636/3" (nazwa obrębu + numer) też zawiodła — bo Łętownia to obręb, nie
+gmina, a krok 2 pipeline'u (`geocode_gmina_candidates`) próbuje
+geokodować podaną nazwę WYŁĄCZNIE jako gminę.
+
+Diagnoza: `/api/resolve` (`main.py`) próbował znaleźć pełny identyfikator
+TERYT tylko przez `GetParcelByIdOrNr` (`uldk_search_candidates`,
+`services/uldk.py`) — combo endpoint ULDK, który wewnętrznie próbuje "po
+ID" i "po nazwie+numerze" naraz. Ten konkretny przypadek nie został przez
+niego znaleziony. **Naprawione**: nowa funkcja `find_parcel_by_id_direct()`
+(`services/uldk.py`) próbuje bardziej bezpośredniego, pojedynczego
+zapytania `GetParcelById` (ten sam typ zapytania, którego już używa
+`scan_gmina_obreby_for_parcel` — potwierdzona różnica w kształcie
+odpowiedzi między tymi dwoma typami zapytań, więc jeden może zadziałać
+tam gdzie drugi zawodzi). Wywoływane w `/api/resolve` gdy zapytanie
+wygląda jak pełny TERYT (≥2 kropki, brak spacji) i pierwsza próba nic
+nie zwróciła. **⚠️ NIE zweryfikowane na żywo** (ULDK zablokowany w
+sandboksie) — jeśli to też nie zadziała, prawdopodobnie ULDK po prostu
+nie ma tej konkretnej działki zaindeksowanej (luka pokrycia po stronie
+usługi, nie błąd kodu) — sprawdź to jako pierwsze, zanim szukasz dalej
+w tym miejscu. 2 nowe testy pytest (`find_parcel_by_id_direct` z fałszywym
+klientem HTTP — parsowanie udanej i nieudanej odpowiedzi).
 
 **Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
 GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;

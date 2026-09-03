@@ -151,6 +151,43 @@ async def scan_gmina_obreby_for_parcel(
     return [r for r in results if r is not None]
 
 
+async def find_parcel_by_id_direct(client: httpx.AsyncClient, teryt_id: str) -> Optional[dict[str, str]]:
+    """Retries a full TERYT id via the more specific 'GetParcelById' request
+    (single-purpose exact-id lookup) instead of the combined 'ByIdOrNr' one
+    used by uldk_search_candidates(). Added 2026-09-03: confirmed live by
+    Klaudia that a real, valid parcel id (verified independently via
+    polska.e-mapa.net, a different EGiB data provider — 121505_2.0001.636/3,
+    obręb Łętownia, gmina Jordanów, powiat suski) came back empty from
+    GetParcelByIdOrNr even though the id was exactly right. GetParcelById
+    is already known in this codebase to use a different response shape
+    (see scan_gmina_obreby_for_parcel below: a single '0'-then-one-data-line
+    reply, not the count-prefixed multi-line reply ByIdOrNr uses) — that's
+    good evidence they're handled by different backend logic in ULDK's own
+    service, so one succeeding where the other fails for an edge case is
+    plausible, not just a guess. NOT verified live (government ULDK is
+    blocked in this sandbox) — if this still doesn't find her parcel, the
+    gap is on ULDK's side (indexing/coverage), not fixable from here."""
+    params = {
+        "request": "GetParcelById",
+        "id": teryt_id,
+        "result": "id,voivodeship,county,commune,parcel",
+        "srid": "4326",
+    }
+    resp = await client.get(ULDK_URL, params=params)
+    resp.raise_for_status()
+    lines = [ln for ln in resp.text.strip().split("\n") if ln.strip()]
+    if len(lines) < 2 or lines[0].strip() != "0":
+        return None
+    fields = [f.strip() for f in lines[1].split("|")]
+    if len(fields) < 5:
+        return None
+    teryt_id_resp, voivodeship, county, commune, parcel_no = fields[:5]
+    return {
+        "teryt_id": teryt_id_resp, "voivodeship": voivodeship, "county": county,
+        "commune": commune, "parcel_no": parcel_no,
+    }
+
+
 async def uldk_search_candidates(client: httpx.AsyncClient, query: str) -> list[dict[str, str]]:
     """Lightweight lookup (no geometry) used by /api/resolve for the
     'type a place name + parcel number' flow. ULDK's GetParcelByIdOrNr

@@ -76,7 +76,7 @@ from services.geocoding import geocode_gmina_candidates, resolve_address_to_parc
 from services.hazards import check_landslide, get_flood_zone, get_waterlogging_risk
 from services.nearby_features import get_nearest_municipal_road, get_waterways
 from services.uldk import (
-    scan_gmina_obreby_for_parcel, try_numbered_precinct_variants,
+    find_parcel_by_id_direct, scan_gmina_obreby_for_parcel, try_numbered_precinct_variants,
     uldk_get_parcel, uldk_search_candidates,
 )
 from services.utilities import check_utilities
@@ -213,6 +213,17 @@ async def resolve_parcel(query: str = Query(default="")):
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
         candidates = await uldk_search_candidates(client, query)
+
+        if not candidates and query.count(".") >= 2 and " " not in query:
+            # Wygląda jak pełny identyfikator TERYT (gmina.obręb.numer) —
+            # spróbuj bardziej bezpośredniego zapytania GetParcelById
+            # zamiast tylko GetParcelByIdOrNr powyżej. Potwierdzone na żywo
+            # 2026-09-03: prawdziwa, poprawna działka (zweryfikowana przez
+            # polska.e-mapa.net) nie została znaleziona przez ByIdOrNr —
+            # patrz find_parcel_by_id_direct.
+            direct = await find_parcel_by_id_direct(client, query)
+            if direct:
+                candidates = [direct]
 
         if not candidates and " " in query:
             name_part, parcel_part = query.rsplit(" ", 1)
