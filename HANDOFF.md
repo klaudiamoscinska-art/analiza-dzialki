@@ -106,7 +106,7 @@ static/
   index.html                 — cały HTML+CSS, zakładki, formularze
   app.js                     — cała logika frontendu (jeden plik)
   manifest.json
-  service-worker.js          — CACHE_NAME="analiza-dzialki-v11", network-first,
+  service-worker.js          — CACHE_NAME="analiza-dzialki-v12", network-first,
                                  fetch(..., {cache:"no-store"}) — patrz notatka niżej
   icons/                     — wygenerowane programowo (PIL), patrz sekcja 7
 ```
@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 35 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 37 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -155,7 +155,7 @@ nie miały żadnego retry poza ULDK.
 
 ### Cache-busting — KRYTYCZNE, rób to przy KAŻDEJ zmianie app.js
 `index.html` ładuje skrypt jako `<script src="/static/app.js?v=N"></script>`.
-**Aktualny numer: v=19.** Przy każdej zmianie `app.js` podbij `N` o 1 i
+**Aktualny numer: v=20.** Przy każdej zmianie `app.js` podbij `N` o 1 i
 zaktualizuj `index.html`. Bez tego przeglądarka użytkowniczki może pokazywać
 starą, zbuforowaną wersję — to się realnie zdarzyło kilkukrotnie i było
 mylące (appka "nie widziała" zmian, mimo że kod na GitHub był poprawny).
@@ -184,7 +184,7 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
    zmienić bajty `service-worker.js` (np. podbić `CACHE_NAME`) przy każdym
    deployu, który dotyka `static/`. **Rób to przy każdej zmianie
    `index.html`/`app.js`/`manifest.json`, tak jak cache-bust `?v=N`.**
-   Aktualny `CACHE_NAME`: `analiza-dzialki-v11`.
+   Aktualny `CACHE_NAME`: `analiza-dzialki-v12`.
 3. Jeśli mimo to appka na telefonie nadal pokazuje starą wersję: to nie
    błąd kodu — poproś użytkowniczkę, żeby całkowicie zamknęła appkę
    (nie tylko zminimalizowała) i otworzyła ją ponownie z siecią; jeśli to
@@ -329,11 +329,59 @@ To jest najbardziej złożona część appki. Pełny pipeline:
 - **Liczba wyników: bez limitu od 2026-09-03** (na życzenie Klaudii;
   wcześniej `max_results=10` obcinał do 10 najlepszych). Teraz
   `search_parcels_universal(..., max_results=None)` zwraca WSZYSTKIE
-  działki w promieniu ok. 2 km spełniające podane kryteria, posortowane
+  działki w promieniu spełniające podane kryteria, posortowane
   od najlepiej dopasowanej. `matches[:None]` w Pythonie to cała lista
   (bez zmian w kodzie poza domyślną wartością parametru) — `max_results`
   zostawiony jako parametr na wypadek, gdyby limit kiedyś jednak był
   potrzebny (np. dla bardzo gęsto podzielonych osiedli).
+
+**Promień wyszukiwania i szukanie po całym powiecie (od 2026-09-03)**:
+Klaudia próbowała wpisać "Powiat suski" jako miejscowość — nic nie
+znalazło. Poproszona o wyjaśnienie, świadomie wybrała **bezpieczniejszą**
+z dwóch opcji: znacznie większy promień (nie prawdziwe przeszukanie
+całego powiatu bez limitu). Powód: `enumerate_parcel_points_in_area`
+zwraca surowe punkty z WFS, ale każdy kandydat i tak trzeba osobno
+doresolvować przez ULDK (`find_parcel_with_area_by_xy`) żeby dostać
+prawdziwą geometrię/wymiary — prawdziwy powiat to nawet dziesiątki
+tysięcy działek, co przy obecnej architekturze (jeden ULDK call na
+kandydata, `asyncio.gather` na wszystkie naraz) oznaczałoby lawinę
+równoległych zapytań do rządowego serwisu i realne ryzyko timeoutu/
+przeciążenia — dokładnie to, czego chcieliśmy uniknąć.
+- `enumerate_parcel_points_in_area`: `radius_m` domyślnie **15000** (z
+  2000). `max_features` **zostaje na 500** — to jest właściwy "wentyl
+  bezpieczeństwa" ograniczający liczbę downstream wywołań ULDK,
+  niezależnie od promienia. W gęstej okolicy przy 15km promieniu i
+  limicie 500 realnie sprawdzana jest tylko najbliższa część obszaru
+  (kolejność zwracana przez serwer WFS, nie odległość) — to świadomy
+  kompromis, nie błąd.
+- **Wpisanie "Powiat X" jako miejscowości**: darmowy geokoder GUGiK
+  (`geocode_address_points`, pole `q`) nie zna nazw powiatów — to
+  wyszukiwarka adresów/miejscowości, nie jednostek administracyjnych.
+  Dodany fallback w `_gather_nearby_parcels` (`services/wfs_search.py`):
+  jeśli zapytanie zaczyna się od "Powiat "/"pow. "/"pow " i zwykłe
+  geokodowanie nic nie znalazło, zdejmujemy przedrostek i pytamy nową
+  funkcję `geocode_powiat_gmina_points()` (`services/geocoding.py`) o
+  strukturalne pole `pow_nazwa` — dokładnie ten sam wzorzec, który już
+  działa dla gmin (`geocode_gmina_candidates`, pole `gm_nazwa`, patrz
+  sekcja 3.2 wyżej o „Milówka 2994/4"). Zwraca środek (centroid) każdej
+  gminy w danym powiecie; mediana tych punktów staje się kotwicą — ta
+  sama logika odporności co przy medianie punktów adresowych dla zwykłej
+  miejscowości.
+  **⚠️ NIE zweryfikowane na żywo** — serwery rządowe (w tym geokoder GUGiK)
+  są zablokowane w sandboksie, w którym to pisano, więc nie dało się
+  potwierdzić, że pole `pow_nazwa` faktycznie istnieje/działa w tym API,
+  ani że odpowiedź zawiera geometrię (`item.geometry.coordinates`) dla
+  zapytań na poziomie powiatu tak samo jak dla adresów. Kod jest napisany
+  defensywnie (brak wyników → zwykły komunikat "nie znaleziono
+  miejscowości", bez wyjątku), więc w najgorszym razie funkcja po prostu
+  nic nie da, tak jak wcześniej. **Jeśli to nadal nie działa po
+  wdrożeniu**, sprawdź: (1) czy `pow_nazwa` to w ogóle prawidłowa nazwa
+  pola w tym API (może być inna, np. `powiat`, `pow`), (2) czy trzeba
+  słownej nazwy w mianowniku ("suski powiat"? "Sucha Beskidzka"?) zamiast
+  przymiotnikowej formy z URL-a/nazwy powiatu, (3) czy odpowiedź w ogóle
+  zawiera pole `geometry` dla zapytań `pow_nazwa` (możliwe że trzeba by
+  zamiast tego geokodować siedzibę powiatu po nazwie miasta — ale nie ma
+  tu gotowej tabeli powiat→siedziba).
 
 **Miniatura kształtu działki (od 2026-09-03)**: każdy wynik ma teraz mały
 SVG-obrys działki obok tekstu (`shape-thumb` w `static/index.html`/`app.js`).

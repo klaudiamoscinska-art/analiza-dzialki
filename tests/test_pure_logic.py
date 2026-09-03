@@ -338,6 +338,64 @@ async def test_search_dimensions_use_10_percent_tolerance_not_20(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_gather_nearby_parcels_falls_back_to_powiat_geocoding(monkeypatch):
+    # "Powiat suski" nie jest adresem/miejscowością (darmowy geokoder 'q'
+    # nic nie znajduje) - _gather_nearby_parcels musi wtedy zdjąć przedrostek
+    # "Powiat " i spróbować strukturalnego pola pow_nazwa zamiast od razu
+    # zwracać błąd "nie znaleziono".
+    calls = {}
+
+    async def fake_address_geocode(client, query, max_results=15):
+        calls["address_query"] = query
+        return []
+
+    async def fake_powiat_geocode(client, name):
+        calls["powiat_query"] = name
+        return [{"lon": 19.6, "lat": 49.7, "description": "Sucha Beskidzka"}]
+
+    async def fake_find_parcel_by_xy(client, lon, lat):
+        return {"teryt_id": "121507_2.0001.1"}
+
+    async def fake_enumerate(*args, **kwargs):
+        calls["enumerate_called"] = True
+        return []
+
+    monkeypatch.setattr(wfs_search, "geocode_address_points", fake_address_geocode)
+    monkeypatch.setattr(wfs_search, "geocode_powiat_gmina_points", fake_powiat_geocode)
+    monkeypatch.setattr(wfs_search, "find_parcel_by_xy", fake_find_parcel_by_xy)
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+
+    result = await wfs_search._gather_nearby_parcels(None, "Powiat suski")
+
+    assert calls["address_query"] == "Powiat suski"
+    assert calls["powiat_query"] == "suski"
+    assert calls["enumerate_called"] is True
+    assert result["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_gather_nearby_parcels_no_powiat_fallback_for_normal_place(monkeypatch):
+    # Zwykła nazwa miejscowości, dla której geokoder nic nie zwrócił, NIE
+    # powinna wywoływać fallbacku powiatowego (nie zaczyna się od "Powiat ").
+    calls = {"powiat_called": False}
+
+    async def fake_address_geocode(client, query, max_results=15):
+        return []
+
+    async def fake_powiat_geocode(client, name):
+        calls["powiat_called"] = True
+        return []
+
+    monkeypatch.setattr(wfs_search, "geocode_address_points", fake_address_geocode)
+    monkeypatch.setattr(wfs_search, "geocode_powiat_gmina_points", fake_powiat_geocode)
+
+    result = await wfs_search._gather_nearby_parcels(None, "Nieistniejąca Wieś Zupełnie")
+
+    assert calls["powiat_called"] is False
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
 async def test_search_propagates_gather_error(monkeypatch):
     async def fake_gather_error(client, place_query):
         return {"status": "error", "message": "Nie znaleziono miejscowości."}

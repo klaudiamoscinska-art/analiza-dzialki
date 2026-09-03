@@ -615,13 +615,16 @@
     <div id="tabSzukaj" class="tab-content">
       <p class="eyebrow">Szukaj działki</p>
       <p class="disclaimer" style="margin:0 0 12px;">
-        Podaj miejscowość i dowolną kombinację: powierzchnię (±10%), szerokość
-        i/lub długość (±10% każda, liczone jako najmniejszy prostokąt
-        otaczający działkę — rzadko jest ona idealnym prostokątem). Sam jeden
-        wymiar wystarczy, jeśli podasz też powierzchnię — wyniki uwzględnią
+        Podaj miejscowość (albo "Powiat X", żeby przeszukać cały powiat) i
+        dowolną kombinację: powierzchnię (±10%), szerokość i/lub długość
+        (±10% każda, liczone jako najmniejszy prostokąt otaczający działkę
+        — rzadko jest ona idealnym prostokątem). Sam jeden wymiar
+        wystarczy, jeśli podasz też powierzchnię — wyniki uwzględnią
         wszystkie podane kryteria naraz i pokażą wszystkie znalezione
-        działki spełniające je w promieniu ok. 2 km, od najlepiej
-        dopasowanej.
+        działki spełniające je w promieniu ok. 15 km, od najlepiej
+        dopasowanej. Przy większym powiecie promień może nie objąć całego
+        obszaru naraz — wyszukiwanie ma sensowny limit liczby sprawdzanych
+        działek na jedno zapytanie.
       </p>
 
       <div class="input-row">
@@ -668,6 +671,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=19"></script>
+<script src="/static/app.js?v=20"></script>
 </body>
 </html>
