@@ -35,30 +35,6 @@
       attribution: "GUGiK EGiB",
     }
   );
-  const mpzpLayer = L.tileLayer.wms(
-    "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaMiejscowychPlanowZagospodarowaniaPrzestrzennego",
-    {
-      layers: "plany",
-      format: "image/png",
-      transparent: true,
-      version: "1.1.1",
-      maxZoom: 22,
-      opacity: 0.55,
-      attribution: "GUGiK MPZP",
-    }
-  );
-  const appLayer = L.tileLayer.wms(
-    "https://mapy.geoportal.gov.pl/wss/ext/KrajowaIntegracjaAktowPlanowaniaPrzestrzennego",
-    {
-      layers: "app",
-      format: "image/png",
-      transparent: true,
-      version: "1.1.1",
-      maxZoom: 22,
-      opacity: 0.55,
-      attribution: "GUGiK Rejestr Urbanistyczny",
-    }
-  );
   // Media / uzbrojenie terenu (GESUT) — te same warstwy i ten sam serwer
   // (KIUT GetMap), z którego panel „Media" już korzysta do wykrywania
   // obecności mediów metodą pikselową (patrz services/utilities.py) — więc
@@ -86,8 +62,6 @@
       null,
       {
         "Działki i budynki (EGiB)": egibLayer,
-        "Plan miejscowy — MPZP (starszy)": mpzpLayer,
-        "Plan miejscowy — Rejestr Urbanistyczny": appLayer,
         "Media / uzbrojenie terenu (GESUT)": gesutLayer,
       },
       { position: "topright", collapsed: false }
