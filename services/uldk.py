@@ -9,7 +9,9 @@ from fastapi import HTTPException
 from shapely.ops import transform as shapely_transform
 
 from config import ULDK_URL, TIMEOUT_OBREB_SCAN, logger
-from geo_utils import _parse_uldk_geometry, _rectangle_side_lengths, geod, to_2180
+from geo_utils import (
+    _parse_uldk_geometry, _polygon_outline_normalized, _rectangle_side_lengths, geod, to_2180,
+)
 
 MAX_OBREB_SCAN = 40
 
@@ -97,6 +99,7 @@ async def find_parcel_with_area_by_xy(client: httpx.AsyncClient, lon: float, lat
             "area_m2": abs(area_m2),
             "short_side_m": short_side,
             "long_side_m": long_side,
+            "shape_points": _polygon_outline_normalized(geometry_2180),
         }
     except Exception:
         return None

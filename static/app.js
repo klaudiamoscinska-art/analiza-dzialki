@@ -359,6 +359,17 @@
     }
   }
 
+  // Mała miniatura kształtu działki (SVG) obok wyniku wyszukiwania —
+  // punkty przychodzą z backendu już znormalizowane do zakresu ~0..64
+  // (dłuższy bok = 64, krótszy proporcjonalnie mniejszy, north-up),
+  // patrz geo_utils._polygon_outline_normalized. -4..68 viewBox dodaje
+  // mały margines, żeby obrys nie stykał się z krawędzią miniatury.
+  function shapeThumbnailSVG(points) {
+    if (!Array.isArray(points) || points.length < 3) return "";
+    const path = points.map((p) => p.join(",")).join(" ");
+    return `<svg class="shape-thumb" viewBox="-4 -4 72 72" aria-hidden="true"><polygon points="${path}"></polygon></svg>`;
+  }
+
   function renderSizeSearchResults(data, targetArea, targetWidth, targetLength, asMax) {
     let dimLabel = null;
     if (targetWidth && targetLength) {
@@ -409,7 +420,8 @@
         }
         return `
         <button class="size-result-row" data-teryt="${escapeHTML(m.teryt_id)}">
-          <span>
+          ${shapeThumbnailSVG(m.shape_points)}
+          <span style="flex:1 1 auto;min-width:0;">
             <span class="size-result-main">${m.short_side_m}×${m.long_side_m} m <span style="font-weight:400;color:#5b6d67;">(${fmtArea(
           m.area_m2
         )})</span></span>
