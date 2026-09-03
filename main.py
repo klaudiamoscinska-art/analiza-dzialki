@@ -114,13 +114,14 @@ async def search_by_parcel_size(
     dims_as_maximum: bool = Query(default=False),
 ):
     """'Szukaj działki' tab: one universal search. Given a locality name and
-    ANY combination of a target area (m²) and/or width/length (m), finds up
-    to 10 real nearby parcels matching ALL supplied criteria, ranked by
-    combined closeness across whichever criteria were given. A single side
-    length (just width, or just length) is accepted as long as area is also
+    ANY combination of a target area (m²) and/or width/length (m), finds
+    ALL real nearby parcels within ±10% matching ALL supplied criteria (no
+    result-count cap — see search_parcels_universal), ranked by combined
+    closeness across whichever criteria were given. A single side length
+    (just width, or just length) is accepted as long as area is also
     given. If dims_as_maximum=true, width AND length are both required and
     treated as a hard ceiling (parcel's sides must each be ≤ the given
-    value) rather than an approximate ±20% target — see
+    value) rather than an approximate ±10% target — see
     search_parcels_universal for the full pipeline."""
     place = place.strip()
     if len(place) < 2:

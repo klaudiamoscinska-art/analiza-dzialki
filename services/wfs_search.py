@@ -270,13 +270,13 @@ async def search_parcels_universal(
     target_area_m2: Optional[float] = None,
     target_width_m: Optional[float] = None, target_length_m: Optional[float] = None,
     dims_as_maximum: bool = False,
-    area_tolerance: float = 0.10, dim_tolerance: float = 0.20, max_results: int = 10,
+    area_tolerance: float = 0.10, dim_tolerance: float = 0.10, max_results: Optional[int] = None,
     min_rectangularity: float = 0.65,
 ) -> dict[str, Any]:
     """'Szukaj działki': one universal search accepting any combination of a
     target area (m², ±10%) and/or width/length (m). Width/length work in one
     of two modes:
-      - Approximate (default): each side within ±20% of the target — a
+      - Approximate (default): each side within ±10% of the target — a
         single side is accepted here as long as area is also given.
       - Maximum (dims_as_maximum=True): BOTH width and length are required,
         and treated as a hard ceiling — a parcel's short/long sides must
@@ -390,6 +390,10 @@ async def search_parcels_universal(
         matches.append(p)
 
     matches.sort(key=lambda p: p["_combined_err"])
+    # Klaudia zażyczyła sobie WSZYSTKICH działek w promieniu spełniających
+    # kryteria (±10%), nie tylko top N — max_results domyślnie None (bez
+    # limitu); matches[:None] to po prostu cała lista, zachowane jako
+    # parametr na wypadek, gdyby limit kiedyś jednak był potrzebny.
     matches = matches[:max_results]
 
     for m in matches:
