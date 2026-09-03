@@ -199,6 +199,64 @@ async def enumerate_parcel_points_in_area(
     return points
 
 
+async def scan_wfs_for_parcel_number(
+    client: httpx.AsyncClient, anchor_lon: float, anchor_lat: float,
+    gmina_prefix: str, parcel_no: str,
+    radius_m: float = 8000.0, max_features: int = 300,
+) -> list[dict[str, str]]:
+    """Alternative to scan_gmina_obreby_for_parcel() (uldk.py) for /api/resolve's
+    'Name Number' path — added 2026-09-03 after Klaudia reported that a
+    confirmed-real parcel (121505_2.0001.636/3, verified via
+    polska.e-mapa.net) could not be found by ANY ID-based ULDK query
+    (GetParcelByIdOrNr, GetParcelById, nor a brute-force per-obręb
+    GetParcelById scan), AND that she'd seen the identical symptom on
+    polska.e-mapa.net itself for a different, unrelated parcel — searching
+    for it directly by number failed, but it became findable only after
+    browsing to a neighbouring parcel on the map first. That points at a
+    genuine quirk in how EGiB/ULDK indexes some parcels for ID-based
+    lookup, not a bug specific to this app or to ULDK's data — since a
+    second, independent provider showed the same pattern.
+
+    This sidesteps ID-based lookup entirely: it enumerates real parcel
+    GEOMETRIES from the powiat's own direct WFS server (the same mechanism
+    'Szukaj działki' already uses, confirmed live for powiat suski) around
+    an anchor point, resolves each one's teryt_id via GetParcelByXY (a
+    spatially-indexed ULDK query, not an ID lookup — same one used
+    everywhere else in this app, including here to resolve every 'Szukaj
+    działki' result), and keeps only the ones whose parcel number matches.
+    This is exactly the 'browse to a neighbour first' path that reportedly
+    works on e-mapa, just automated instead of manual.
+
+    radius_m/max_features default smaller than the 'Szukaj działki' powiat
+    search (8km/300 vs 15km/500 per gmina) — this only needs to cover one
+    gmina's extent (it already knows which gmina, from gmina_prefix, unlike
+    the broader powiat-wide area search), not sample as wide an area.
+    NOT verified live (see module docstring above for why)."""
+    try:
+        candidate_points = await enumerate_parcel_points_in_area(
+            client, f"{gmina_prefix}.0000.0",
+            *to_2180.transform(anchor_lon, anchor_lat), anchor_lon, anchor_lat,
+            radius_m=radius_m, max_features=max_features,
+        )
+    except Exception:
+        logger.warning("scan_wfs_for_parcel_number: enumeracja nie powiodła się dla %s", gmina_prefix, exc_info=True)
+        return []
+    if not candidate_points:
+        return []
+
+    parcels = await asyncio.gather(
+        *[find_parcel_by_xy(client, lon, lat) for lon, lat in candidate_points]
+    )
+
+    seen: dict[str, dict[str, str]] = {}
+    for parcel in parcels:
+        if not parcel or parcel["teryt_id"] in seen:
+            continue
+        if parcel["teryt_id"].rsplit(".", 1)[-1] == parcel_no:
+            seen[parcel["teryt_id"]] = parcel
+    return list(seen.values())
+
+
 async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) -> dict[str, Any]:
     """Shared first half of both 'Szukaj działki' search modes (by area, by
     width+length): geocode the place name to a stable anchor point, find

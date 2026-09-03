@@ -143,11 +143,15 @@ async def geocode_powiat_gmina_prefixes(client: httpx.AsyncClient, powiat_name: 
             gmina_teryt = item.get("teryt")
             if not gmina_teryt or len(gmina_teryt) != 7:
                 continue
+            coords = (item.get("geometry") or {}).get("coordinates")
             if gmina_teryt not in seen:
-                seen[gmina_teryt] = {
+                entry = {
                     "gmina_prefix": f"{gmina_teryt[:6]}_{gmina_teryt[6]}",
                     "gm_nazwa": item.get("gm_nazwa", ""),
                 }
+                if coords and len(coords) == 2:
+                    entry["lon"], entry["lat"] = coords[0], coords[1]
+                seen[gmina_teryt] = entry
     return list(seen.values())
 
 
@@ -159,7 +163,13 @@ async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list
     the gmina level specifically — confirmed live: 'gm_nazwa=Milówka' finds
     the real Gmina Milówka (śląskie), while a free-text search for the same
     string can instead match an unrelated same-named village in a different
-    gmina (Milówka, a village inside Gmina Wojnicz)."""
+    gmina (Milówka, a village inside Gmina Wojnicz).
+
+    Also includes each gmina's centroid ('lon'/'lat', when the geocoder's
+    response includes geometry) — added 2026-09-03 so callers can run a
+    geometry-based WFS scan (see scan_wfs_for_parcel_number in
+    wfs_search.py) as an alternative to the ID-based obręb scan, without a
+    second geocoding round-trip."""
     try:
         resp = await client.post(
             GEOCODER_URL, json={"reqs": [{"gm_nazwa": name}]}, timeout=TIMEOUT_GEOCODER
@@ -177,13 +187,17 @@ async def geocode_gmina_candidates(client: httpx.AsyncClient, name: str) -> list
             gmina_teryt = item.get("teryt")
             if not gmina_teryt or len(gmina_teryt) != 7:
                 continue
+            coords = (item.get("geometry") or {}).get("coordinates")
             if gmina_teryt not in seen:
-                seen[gmina_teryt] = {
+                entry = {
                     "gmina_teryt": gmina_teryt,
                     "gmina_prefix": f"{gmina_teryt[:6]}_{gmina_teryt[6]}",
                     "gm_nazwa": item.get("gm_nazwa", ""),
                     "pow_nazwa": item.get("pow_nazwa", ""),
                     "woj_nazwa": item.get("woj_nazwa", ""),
                 }
+                if coords and len(coords) == 2:
+                    entry["lon"], entry["lat"] = coords[0], coords[1]
+                seen[gmina_teryt] = entry
     return list(seen.values())
 

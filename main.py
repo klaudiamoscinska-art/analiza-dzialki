@@ -83,7 +83,7 @@ from services.uldk import (
 )
 from services.utilities import check_utilities
 from services.valuation import estimate_value, get_emapa_link, get_geoportal_link, get_gunb_link
-from services.wfs_search import search_parcels_universal
+from services.wfs_search import scan_wfs_for_parcel_number, search_parcels_universal
 from services.zoning import get_zoning
 
 app = FastAPI(title="Analiza Działki GIS")
@@ -196,7 +196,7 @@ async def resolve_parcel(query: str = Query(default="")):
     a single resolved match (frontend proceeds straight to /api/analyze) or a
     list of candidates to disambiguate (frontend shows a picker).
 
-    Four-stage lookup:
+    Multi-stage lookup:
       1. Direct ULDK free-text 'ObrębName Numer' search (exact obręb name),
          plus (2026-09-03) a GetParcelById retry if the query is itself a
          full TERYT id — see find_parcel_by_id_direct.
@@ -207,24 +207,57 @@ async def resolve_parcel(query: str = Query(default="")):
          what resolves cases like 'Milówka 2994/4', where the parcel is
          actually registered under a neighbouring village's obręb ('Laliki')
          within the same gmina — confirmed live.
-      3. If that STILL finds nothing: try the '{Name}-{n}' numbered-precinct
+      3. (2026-09-03) If THAT still finds nothing: for the same gmina
+         candidates, try scan_wfs_for_parcel_number() instead of the
+         ID-based scan above — enumerates real parcel geometries from the
+         powiat's own WFS server and resolves each by spatial GetParcelByXY,
+         rather than an ID-indexed lookup. Added after Klaudia confirmed a
+         real, independently-verified parcel (121505_2.0001.636/3) was not
+         found by ANY ID-based ULDK query, AND reported seeing the identical
+         symptom on a different provider (polska.e-mapa.net) for an
+         unrelated parcel — findable only after browsing to a neighbouring
+         parcel first. This automates exactly that "browse to a neighbour"
+         path. See scan_wfs_for_parcel_number's docstring for detail.
+      4. If that STILL finds nothing: try the '{Name}-{n}' numbered-precinct
          naming pattern directly via ULDK (see try_numbered_precinct_variants)
          — this is what resolves cases like 'Bochnia 6312/1', a city whose
          own gmina isn't surfaced by the geocoder used in stage 2 at all.
-      4. (2026-09-03, Klaudia's request) If that STILL finds nothing: treat
+      5. (2026-09-03, Klaudia's request) If that STILL finds nothing: treat
          "Name" as a POWIAT name instead of a gmina — reuses
-         geocode_powiat_gmina_points() (built for 'Szukaj działki'), then
-         scans every obręb of every gmina in that powiat. Covers the case
-         where the obręb name someone types (e.g. 'Łętownia', a real village
-         but not itself a gmina) doesn't share a name with its gmina, but
-         the powiat name IS known — see 'Fallback GetParcelById' in
-         HANDOFF.md for the specific case this was added for. Bounded but
-         not small: a powiat can have several gminas, each scanned up to
-         MAX_OBREB_SCAN obręby concurrently — acceptable for a manual,
-         one-off search, not something to call in a hot loop."""
+         geocode_powiat_gmina_prefixes() (built for 'Szukaj działki'), then
+         repeats stages 2+3 (ID scan, then WFS scan) for every gmina in that
+         powiat. Covers the case where the obręb name someone types (e.g.
+         'Łętownia', a real village but not itself a gmina) doesn't share a
+         name with its gmina, but the powiat name IS known — see 'Fallback
+         GetParcelById' in HANDOFF.md. Bounded but not small: a powiat can
+         have several gminas, each scanned concurrently — acceptable for a
+         manual, one-off search, not something to call in a hot loop."""
     query = query.strip()
     if len(query) < 3:
         raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
+
+    async def scan_gminas_both_ways(gminas: list[dict], parcel_part: str) -> list[dict]:
+        """Stages 2+3 above, applied to any list of gmina candidates (used
+        for both the gmina-name and powiat-name pathways): ID-based obręb
+        scan first (cheap, usually sufficient), then — only if that finds
+        nothing — the WFS geometry-based scan (only for candidates with
+        known coordinates; see geocode_gmina_candidates/
+        geocode_powiat_gmina_prefixes)."""
+        id_scan_results = await asyncio.gather(
+            *[scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part) for g in gminas]
+        )
+        hits = [h for r in id_scan_results for h in r]
+        if hits:
+            return hits
+
+        geocoded = [g for g in gminas if "lon" in g]
+        wfs_scan_results = await asyncio.gather(
+            *[
+                scan_wfs_for_parcel_number(client, g["lon"], g["lat"], g["gmina_prefix"], parcel_part)
+                for g in geocoded
+            ]
+        )
+        return [h for r in wfs_scan_results for h in r]
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
         candidates = await uldk_search_candidates(client, query)
@@ -245,28 +278,18 @@ async def resolve_parcel(query: str = Query(default="")):
             name_part = name_part.strip()
             if name_part and parcel_part:
                 gminas = await geocode_gmina_candidates(client, name_part)
-                scan_results = await asyncio.gather(
-                    *[scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part) for g in gminas]
-                )
-                for hits in scan_results:
-                    candidates.extend(hits)
+                candidates.extend(await scan_gminas_both_ways(gminas, parcel_part))
 
                 if not candidates:
                     candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
 
                 if not candidates:
-                    # Etap 4: "Name" mogła być powiatem, nie gminą (np.
+                    # Etap 5: "Name" mogła być powiatem, nie gminą (np.
                     # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
-                    # tym powiecie. Patrz docstring wyżej i HANDOFF.md.
+                    # tym powiecie, tym samym dwuetapowym (ID + WFS)
+                    # skanem. Patrz docstring wyżej i HANDOFF.md.
                     powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
-                    scan_results = await asyncio.gather(
-                        *[
-                            scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part)
-                            for g in powiat_gminas
-                        ]
-                    )
-                    for hits in scan_results:
-                        candidates.extend(hits)
+                    candidates.extend(await scan_gminas_both_ways(powiat_gminas, parcel_part))
 
     if not candidates:
         raise HTTPException(

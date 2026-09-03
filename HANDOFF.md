@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 42 testy dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 48 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -305,7 +305,62 @@ już jest zaimplementowane poprawnie (`if len(candidates) == 1: return
 {"resolved": True, ...}` w `main.py` — brak pickera dla jednoznacznego
 trafienia), po prostu było niewidoczne, bo samo wyszukiwanie nic nie
 zwracało. Nie ma tu osobnego błędu do naprawienia — sprawdzenie się
-samo, jak tylko któryś z czterech etapów faktycznie znajdzie działkę.
+samo, jak tylko któryś z etapów faktycznie znajdzie działkę.
+
+**Etap 4 też zawiódł ("suski 636/3" → nadal "Nie znaleziono działki") —
+prawdziwy przełom: Klaudia zgłosiła identyczny objaw na INNYM dostawcy
+(2026-09-03).** Po tym jak wszystkie 4 dotychczasowe strategie (wszystkie
+oparte o zapytania ID-owe do ULDK: `GetParcelByIdOrNr`, `GetParcelById`,
+skan obrębów gminy, skan obrębów powiatu) zawiodły identycznie dla
+`121505_2.0001.636/3`, Klaudia opisała, że widziała **ten sam objaw na
+polska.e-mapa.net** — dla zupełnie innej, niepowiązanej działki (Koszarawa
+8451/19) bezpośrednie wyszukanie po numerze też nic nie dawało, ale
+działka stała się "widoczna"/wyszukiwalna dopiero PO tym, jak znalazła
+sąsiednią działkę (Koszarawa 9102/117) przeglądając mapę. To silna
+poszlaka, że to nie błąd w tej aplikacji ani w konkretnych danych ULDK,
+tylko realna cecha/usterka tego, jak EGiB/ULDK indeksuje niektóre działki
+pod kątem wyszukiwania PO NUMERZE — skoro dwóch niezależnych dostawców
+(ULDK i cokolwiek stoi za e-mapa) pokazuje ten sam wzorzec, to nie
+przypadek.
+
+**Naprawa: `scan_wfs_for_parcel_number()` (nowa funkcja w
+`services/wfs_search.py`) — wyszukiwanie PRZEZ GEOMETRIĘ zamiast przez
+indeks ID**, dodane 2026-09-03 zaraz po etapie 4. Zamiast pytać ULDK "czy
+istnieje działka o tym identyfikatorze" (co zawodzi), automatyzuje
+dokładnie to, co podobno działa ręcznie na e-mapa — "przeglądanie
+sąsiednich działek":
+1. Pobiera prawdziwe GEOMETRIE działek z własnego serwera WFS danego
+   powiatu (ten sam mechanizm co "Szukaj działki", potwierdzony na żywo
+   dla powiatu suskiego) w promieniu wokół punktu-kotwicy danej gminy —
+   `enumerate_parcel_points_in_area()`, już istniejąca funkcja, ponownie
+   użyta.
+2. Dla KAŻDEGO znalezionego punktu-kandydata odpytuje ULDK o
+   `GetParcelByXY` (zapytanie PRZESTRZENNE, indeksowane inaczej niż
+   zapytanie po ID — to samo zapytanie używane wszędzie indziej w tej
+   aplikacji, m.in. do rozwiązywania każdego wyniku "Szukaj działki").
+3. Filtruje po numerze działki (`teryt_id` kończący się dokładnie na
+   szukanym numerze).
+
+Podłączone jako etap 3 (po ID-owym skanie obrębów gminy, gdy ten nic nie
+znajdzie) ORAZ etap 5b (analogicznie, po ID-owym skanie obrębów powiatu) —
+`main.py`'s `resolve_parcel()` ma teraz lokalną funkcję pomocniczą
+`scan_gminas_both_ways()` używaną w obu miejscach, żeby nie duplikować tej
+logiki. Wymaga współrzędnych (`lon`/`lat`) danej gminy — dodane teraz do
+`geocode_gmina_candidates()` i `geocode_powiat_gmina_prefixes()`
+(wcześniej zwracały tylko `gmina_prefix`, nie współrzędne; wyciągane z
+tego samego pola `geometry.coordinates`, które geokoder GUGiK już zwraca —
+bez dodatkowego zapytania sieciowego). 6 nowych testów pytest (w sumie
+48): parsowanie współrzędnych w obu funkcjach geokodujących (w tym
+przypadek braku geometrii — pole `lon`/`lat` po prostu nie występuje w
+wyniku), i `scan_wfs_for_parcel_number` z fałszywym `enumerate`/`find_by_xy`
+(dopasowanie po numerze, brak dopasowania, błąd enumeracji). **Nadal NIE
+zweryfikowane na żywo** (patrz uzasadnienie wyżej) — ale to jest
+GENUINE nowa ścieżka odkrywania działek, nie kolejna wariacja tego samego
+zapytania ID, więc uzasadnia kolejną próbę mimo wcześniejszej deklaracji
+"nie zgaduję czwartej kombinacji". Jeśli to też zawiedzie, kolejnym krokiem
+NIE powinna być kolejna kombinacja zapytań, tylko realny dostęp do logów
+Render (`logger.info` z etapu wcześniejszego) albo do samego ULDK/WFS z
+środowiska, które nie ma zablokowanych domen rządowych.
 
 **Wzorzec: rozwijane podkategorie warstw mapy (`static/app.js`, `addLayerGroupRow()`)**
 GESUT i Plany zagospodarowania to jedyne dwie warstwy z podkategoriami;
