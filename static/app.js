@@ -42,7 +42,10 @@
   // poprawnie narysować jako kafelki mapy. Oprócz zbiorczego przełącznika
   // (wszystkie sześć typów naraz) każdy typ sieci ma też własny, osobny
   // przełącznik — kolory linii ustala sam serwer KIUT, nie mamy nad nimi
-  // kontroli przez proste WMS GetMap.
+  // kontroli przez proste WMS GetMap. Podkategorie NIE są osobnymi
+  // pozycjami w płaskiej liście L.control.layers (Leaflet nie wspiera
+  // zagnieżdżonych grup) — są w rozwijanym <details> doklejonym pod
+  // wierszem GESUT, patrz niżej.
   function gesutLayerFor(layersParam) {
     return L.tileLayer.wms(
       "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaUzbrojeniaTerenu",
@@ -67,22 +70,48 @@
   const gesutTelekomLayer = gesutLayerFor("przewod_telekomunikacyjny");
   egibLayer.addTo(map);
 
-  L.control
+  const layersControl = L.control
     .layers(
       null,
       {
         "Działki i budynki (EGiB)": egibLayer,
-        "Media / uzbrojenie terenu (GESUT) — wszystkie": gesutLayer,
-        "— Wodociąg": gesutWodociagLayer,
-        "— Kanalizacja": gesutKanalizacjaLayer,
-        "— Gaz": gesutGazLayer,
-        "— Elektroenergetyka": gesutElektroLayer,
-        "— Ciepłociąg": gesutCieploLayer,
-        "— Telekomunikacja": gesutTelekomLayer,
+        "Media / uzbrojenie terenu (GESUT)": gesutLayer,
       },
       { position: "topright", collapsed: false }
     )
     .addTo(map);
+
+  // Podkategorie GESUT jako rozwijana lista pod głównym przełącznikiem
+  // (nie płaskie pozycje obok EGiB). L.control.layers czyści tylko swoje
+  // wewnętrzne listy przy każdej zmianie warstwy (Leaflet _update()), więc
+  // doklejenie tego <details> bezpośrednio do kontenera kontrolki jest
+  // bezpieczne — nie zostanie nadpisane.
+  const gesutSubcategories = [
+    ["Wodociąg", gesutWodociagLayer],
+    ["Kanalizacja", gesutKanalizacjaLayer],
+    ["Gaz", gesutGazLayer],
+    ["Elektroenergetyka", gesutElektroLayer],
+    ["Ciepłociąg", gesutCieploLayer],
+    ["Telekomunikacja", gesutTelekomLayer],
+  ];
+  const gesutDetails = document.createElement("details");
+  gesutDetails.className = "gesut-subcategories";
+  const gesutSummary = document.createElement("summary");
+  gesutSummary.textContent = "Pojedyncze sieci";
+  gesutDetails.appendChild(gesutSummary);
+  gesutSubcategories.forEach(([label, layer]) => {
+    const row = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.addEventListener("change", () => {
+      if (input.checked) layer.addTo(map);
+      else map.removeLayer(layer);
+    });
+    row.appendChild(input);
+    row.appendChild(document.createTextNode(" " + label));
+    gesutDetails.appendChild(row);
+  });
+  layersControl.getContainer().appendChild(gesutDetails);
 
   let parcelLayer = null;
   let currentCandidates = [];

@@ -14,7 +14,7 @@
 // "sieć najpierw" może i tak cicho oddać stary plik z dysku, zwłaszcza
 // w appce dodanej do ekranu głównego (iOS Safari rzadziej sprawdza
 // aktualizację service workera niż zwykła karta). Stąd `no-store` niżej.
-const CACHE_NAME = "analiza-dzialki-v5";
+const CACHE_NAME = "analiza-dzialki-v6";
 const APP_SHELL = [
   "/",
   "/static/app.js",

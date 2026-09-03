@@ -349,6 +349,35 @@
     width:34px !important;
     height:34px !important;
   }
+  .gesut-subcategories{
+    margin:2px 0 0;
+    padding-top:4px;
+    border-top:1px solid var(--line);
+  }
+  .gesut-subcategories summary{
+    cursor:pointer;
+    font-size:11px;
+    color:#5b6d67;
+    list-style:none;
+  }
+  .gesut-subcategories summary::-webkit-details-marker{ display:none; }
+  .gesut-subcategories summary::before{
+    content:"▸ ";
+  }
+  .gesut-subcategories[open] summary::before{
+    content:"▾ ";
+  }
+  .gesut-subcategories:not([open]) label{
+    display:none;
+  }
+  .gesut-subcategories[open] label{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    margin:3px 0 3px 12px;
+    white-space:normal;
+    line-height:1.25;
+  }
 
   /* ---------- DATA TABLES ---------- */
   .data-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
@@ -604,6 +633,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>
