@@ -2,6 +2,7 @@
 retry-on-transient-failure GET wrapper, the multi-mirror Overpass API
 client, and a small WMS GetFeatureInfo request builder."""
 import asyncio
+import time
 from typing import Any, Optional
 
 import httpx
@@ -72,9 +73,18 @@ async def _get_with_retry(
     (bad params, not found), not the kind of flakiness worth retrying. Also
     does NOT retry a response that came back HTTP 200 but with an error body
     (e.g. WFS ExceptionReport) — that's a real answer from a reachable
-    server too, and the caller already handles those bodies itself."""
+    server too, and the caller already handles those bodies itself.
+
+    Logs elapsed wall-clock time per failed attempt (added 2026-09-04,
+    diagnostic step 1 from HANDOFF.md's MPZP ConnectTimeout investigation)
+    — a failure that lands in milliseconds (e.g. a connection actively
+    refused/reset, or a DNS failure surfaced as a timeout) points at a
+    different root cause than one that genuinely burns the whole `timeout`
+    budget, and there was previously no way to tell the two apart from the
+    logs alone."""
     last_exc: Optional[Exception] = None
     for attempt in range(max_retries + 1):
+        started = time.monotonic()
         try:
             resp = await client.get(url, params=params, timeout=timeout, follow_redirects=follow_redirects)
             resp.raise_for_status()
@@ -85,9 +95,10 @@ async def _get_with_retry(
             last_exc = exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             last_exc = exc
+        elapsed_s = time.monotonic() - started
         logger.warning(
-            "GET %s: próba %d/%d nieudana (%s: %s)",
-            url, attempt + 1, max_retries + 1, type(last_exc).__name__, last_exc,
+            "GET %s: próba %d/%d nieudana po %.1fs (%s: %s)",
+            url, attempt + 1, max_retries + 1, elapsed_s, type(last_exc).__name__, last_exc,
         )
         if attempt < max_retries:
             await asyncio.sleep(retry_delay_s)
