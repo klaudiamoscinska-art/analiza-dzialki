@@ -19,6 +19,7 @@ This still helps within a single deploy's uptime (repeat visits to the
 same parcel, multiple people checking the same real-world parcel) — it
 just doesn't accumulate value across deploys until/unless a persistent
 disk is added later."""
+import asyncio
 import json
 import sqlite3
 import time
@@ -54,6 +55,24 @@ def _reset_for_tests() -> None:
         _conn = None
 
 
+def _read_row(service: str, key: str) -> Optional[tuple[str, float]]:
+    conn = _get_conn()
+    return conn.execute(
+        "SELECT payload_json, fetched_at FROM cache_entries WHERE service=? AND cache_key=?",
+        (service, key),
+    ).fetchone()
+
+
+def _write_row(service: str, key: str, payload_json: str, fetched_at: float) -> None:
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO cache_entries (service, cache_key, payload_json, fetched_at) "
+        "VALUES (?, ?, ?, ?)",
+        (service, key, payload_json, fetched_at),
+    )
+    conn.commit()
+
+
 async def get_or_fetch(
     service: str, key: str, ttl_seconds: float, fetch: Callable[[], Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:
@@ -70,12 +89,16 @@ async def get_or_fetch(
     'cached' (bool) and 'fetched_at' (unix timestamp) so the UI can show
     data age — see app.js's dataAgeNote(). This is not optional
     bookkeeping: showing stale-looking data as if it were fetched this
-    second is the one thing this cache must never silently do."""
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT payload_json, fetched_at FROM cache_entries WHERE service=? AND cache_key=?",
-        (service, key),
-    ).fetchone()
+    second is the one thing this cache must never silently do.
+
+    The actual sqlite3 read/write is synchronous (the stdlib driver has no
+    async mode) and offloaded to a worker thread via asyncio.to_thread —
+    fixed 2026-09-04, main.py fans out ~9 of these calls concurrently per
+    /api/analyze via asyncio.gather, and a blocking conn.execute() run
+    directly on the event loop thread would serialize otherwise-independent
+    concurrent requests instead of letting them interleave during I/O
+    waits, defeating the point of that concurrency."""
+    row = await asyncio.to_thread(_read_row, service, key)
     now = time.time()
     if row is not None:
         payload_json, fetched_at = row
@@ -88,12 +111,7 @@ async def get_or_fetch(
     result = await fetch()
     if isinstance(result, dict) and result.get("status") == "ok":
         try:
-            conn.execute(
-                "INSERT OR REPLACE INTO cache_entries (service, cache_key, payload_json, fetched_at) "
-                "VALUES (?, ?, ?, ?)",
-                (service, key, json.dumps(result), now),
-            )
-            conn.commit()
+            await asyncio.to_thread(_write_row, service, key, json.dumps(result), now)
         except Exception:
             logger.warning("cache.get_or_fetch: zapis do cache'u nie powiódł się dla %s/%s", service, key, exc_info=True)
         result = dict(result)

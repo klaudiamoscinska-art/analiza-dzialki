@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 89 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 96 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -888,6 +888,68 @@ To zamyka 3-punktowy plan zaakceptowany przez Klaudię po analizie
 Działkopedii. Pozostałe zbadane-ale-nie-zrobione kategorie danych z tego
 researchu (azbest, Copernicus EGMS, Seveso, UKE, RCN) patrz punkt wyżej —
 wciąż otwarte, nie rozpoczynać bez wyraźnej prośby Klaudii.
+
+### Cztery poprawki błędów znalezionych przy przeglądzie kodu — dodane 2026-09-04
+
+Po zamknięciu planu Działkopedii Klaudia poprosiła o dalsze sensowne
+poprawki wedle własnego uznania. Uruchomiony pełny przegląd kodu
+(`services/`, `main.py`, `config.py`, `geo_utils.py`, `http_utils.py`) —
+znalazł 4 realne błędy logiczne, wszystkie naprawione, każdy z nowym
+testem pytest (96 testów łącznie, było 89):
+
+1. **`services/zoning.py::get_zoning()` — błąd KIAPP maskował udany wynik
+   KIMPZP.** `asyncio.gather` odpytuje oba źródła naraz; `if kiapp_result
+   is not None: return kiapp_result` traktował TAKŻE słownik błędu (`{"status":
+   "error", ...}`) jako "KIAPP ma wynik, użyj go" — więc przejściowy błąd
+   sieciowy KIAPP potrafił nadpisać realne dane MPZP, które KIMPZP w tym
+   samym momencie poprawnie znalazł. To bezpośrednio wynikło z dzisiejszej
+   analizy działki testowej Zawoja (błąd niepowiązany z tym, co tam się
+   faktycznie stało, ale znaleziony przy okazji czytania tego samego
+   pliku). **Naprawa**: `_has_real_data()` sprawdza `status != "error"`,
+   nie tylko `is not None` — błąd jest zwracany dopiero gdy ŻADNE źródło
+   nie ma realnych danych, a nawet wtedy woli pokazać "usługa niedostępna"
+   niż fałszywie pewną notatkę "brak planu". 2 nowe testy.
+2. **`services/air_quality.py::get_air_quality()` — porzucał najbliższą
+   stację na samym niepowodzeniu PM2.5**, nie próbując PM10 na TEJ SAMEJ
+   stacji, mimo że moduł deklarował w docstringu dokładnie odwrotne
+   zachowanie. `_find_pollutant_sensor()` (liczba pojedyncza) zwracał
+   tylko PIERWSZY pasujący czujnik; jeśli ten czujnik akurat nie miał
+   świeżego odczytu, kod przechodził od razu do DALSZEJ stacji zamiast
+   spróbować PM10 na obecnej. **Naprawa**: nowy `_find_pollutant_sensors()`
+   (liczba mnoga) zwraca WSZYSTKIE dostępne czujniki stacji w kolejności
+   preferencji, pętla w `get_air_quality()` próbuje ich po kolei zanim
+   przejdzie do następnej stacji. 1 nowy test (stacja z PM2.5 bez odczytu
+   + PM10 z odczytem na TEJ SAMEJ stacji musi zwrócić tę stację, nie
+   dalszą).
+3. **`http_utils.py::_get_with_retry()` — nie ponawiał przy 5xx.** Retry
+   łapał tylko `httpx.TimeoutException`/`TransportError`, więc
+   przeciążony serwer WFS powiatu zwracający 503/500 (realny,
+   udokumentowany w HANDOFF.md tryb awarii dla ~380 niezależnych
+   serwerów) failował od razu, tracąc jedyny retry, po który ten helper
+   istnieje. **Naprawa**: dodano `except httpx.HTTPStatusError` — retry
+   przy kodzie ≥500, natychmiastowe `raise` przy 4xx (to prawdziwa,
+   trwała odpowiedź o TYM zapytaniu, nie coś do ponawiania). 4 nowe testy.
+4. **`services/cache.py::get_or_fetch()` — synchroniczne SQLite blokowało
+   pętlę zdarzeń.** `main.py` odpytuje cache współbieżnie przez
+   `asyncio.gather` (~9 wywołań na jeden `/api/analyze`), ale
+   `conn.execute()`/`conn.commit()` był wywoływany bezpośrednio w
+   korutynie — blokujące wywołanie na wątku pętli zdarzeń serializuje
+   współbieżne requesty zamiast pozwolić im się przeplatać podczas
+   oczekiwania na I/O, czyli dokładnie odwrotność tego, po co jest
+   `asyncio.gather`. **Naprawa**: odczyt (`_read_row`) i zapis
+   (`_write_row`) wydzielone do osobnych funkcji, wywoływane przez
+   `asyncio.to_thread()`. Zachowanie identyczne (istniejące testy cache'u
+   przechodzą bez zmian), tylko już nie na wątku event loopa.
+
+**Świadomie odłożone** (znalezione w tym samym przeglądzie, ale
+nie naprawione w tej rundzie): `services/geocoding.py` ma trzy niemal
+identyczne funkcje geokodujące (`geocode_powiat_gmina_points`,
+`geocode_powiat_gmina_prefixes`, `geocode_gmina_candidates`), które już
+raz się rozjechały (trzecia ma dodatkowe pola, których dwie pierwsze nie
+mają) — realna okazja do uproszczenia, ale to refaktor dotykający
+ostrożnie dostrojonej logiki geokodowania, nie prosta poprawka błędu;
+wymaga osobnej, uważniejszej rundy, nie warto łączyć z poprawkami błędów
+powyżej.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

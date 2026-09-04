@@ -9,10 +9,13 @@ builders, and the WFS registry lookup rules.
 
 Run with: pytest (after `pip install -r requirements-dev.txt`).
 """
+import httpx
 import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
+import http_utils
+from config import KIAPP_URL, KIMPZP_URL
 from services import (
     air_quality, cache, due_diligence, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning,
 )
@@ -729,6 +732,42 @@ async def test_get_zoning_attaches_ouz_note_when_no_plan_found_anywhere(monkeypa
     assert "2026" in result["note"]
 
 
+@pytest.mark.asyncio
+async def test_get_zoning_kiapp_error_does_not_mask_kimpzp_success(monkeypatch):
+    """Fixed 2026-09-04 — a transient KIAPP failure used to short-circuit
+    get_zoning() and throw away a concurrently-successful KIMPZP result."""
+    html = "<table><tr><td>Symbol</td><td>1MN — zabudowa jednorodzinna</td></tr></table>"
+
+    async def fake_has_plan(client, url, layer, x, y, half_extent_m=15.0):
+        if url == KIAPP_URL:
+            raise RuntimeError("KIAPP niedostępny")
+        return True
+
+    async def fake_get_feature_info(client, url, layers, x, y, half_extent_m=15.0):
+        return _FakeFeatureInfoResponse(html)
+
+    monkeypatch.setattr(zoning, "_mpzp_has_plan_drawn", fake_has_plan)
+    monkeypatch.setattr(zoning, "wms_get_feature_info", fake_get_feature_info)
+
+    result = await zoning.get_zoning(None, 0.0, 0.0)
+
+    assert result["status"] == "ok"
+    assert result["found"] == "yes"
+    assert result["source"] == "MPZP (KIMPZP)"
+
+
+@pytest.mark.asyncio
+async def test_get_zoning_both_sources_erroring_surfaces_error_not_no_plan(monkeypatch):
+    async def fake_has_plan(client, url, layer, x, y, half_extent_m=15.0):
+        raise RuntimeError("usługa niedostępna")
+
+    monkeypatch.setattr(zoning, "_mpzp_has_plan_drawn", fake_has_plan)
+
+    result = await zoning.get_zoning(None, 0.0, 0.0)
+
+    assert result["status"] == "error"
+
+
 # ---------------------------------------------------------------------------
 # services.cache — generic SQLite cache-aside, added 2026-09-04 after the
 # performance investigation ("Plan Pamięci Podręcznej"). Lazy cache-aside,
@@ -1212,6 +1251,31 @@ async def test_get_air_quality_falls_back_to_pm10_when_no_pm25(cache_db):
 
 
 @pytest.mark.asyncio
+async def test_get_air_quality_falls_back_to_pm10_on_same_station_when_pm25_has_no_reading(cache_db):
+    """Fixed 2026-09-04 — used to abandon the nearest station entirely on a
+    PM2.5 miss, without trying that same station's own PM10 sensor first,
+    needlessly reporting a farther station instead."""
+    stations = [_aq_station(1, "Bliska", 19.0, 50.0), _aq_station(2, "Daleka", 25.0, 54.0)]
+    sensors = {
+        1: [_aq_sensor(101, "PM2.5"), _aq_sensor(102, "PM10")],
+        2: [_aq_sensor(201, "PM2.5")],
+    }
+    data = {
+        101: [{"Wartość": None, "Data": "2026-09-04 09:00:00"}],
+        102: [{"Wartość": 18.0, "Data": "2026-09-04 09:00:00"}],
+        201: [{"Wartość": 25.0, "Data": "2026-09-04 09:00:00"}],
+    }
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["station_name"] == "Bliska"
+    assert result["pollutant"] == "PM10"
+    assert result["value"] == 18.0
+
+
+@pytest.mark.asyncio
 async def test_get_air_quality_scans_past_null_values(cache_db):
     stations = [_aq_station(1, "Stacja", 19.0, 50.0)]
     sensors = {1: [_aq_sensor(301, "PM2.5")]}
@@ -1284,3 +1348,71 @@ async def test_get_air_quality_station_list_fetch_failure_is_error(cache_db):
 
     assert result["status"] == "error"
     assert "GIOŚ" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# http_utils._get_with_retry — retries transient failures for the ~380
+# independently-operated powiat WFS servers. Fixed 2026-09-04: used to
+# retry only httpx.TimeoutException/TransportError, never a 5xx HTTP
+# status, so an overloaded server returning 503 failed on the first try
+# instead of getting the one retry this helper exists to provide.
+# ---------------------------------------------------------------------------
+
+class _QueueClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+
+    async def get(self, url, params=None, timeout=None):
+        self.calls += 1
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _http_response(status_code):
+    request = httpx.Request("GET", "http://example.com")
+    return httpx.Response(status_code, request=request)
+
+
+@pytest.mark.asyncio
+async def test_get_with_retry_retries_on_5xx_then_succeeds():
+    client = _QueueClient([_http_response(503), _http_response(200)])
+
+    resp = await http_utils._get_with_retry(client, "http://x", params={}, timeout=1.0, retry_delay_s=0)
+
+    assert resp.status_code == 200
+    assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_get_with_retry_does_not_retry_on_4xx():
+    client = _QueueClient([_http_response(404)])
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await http_utils._get_with_retry(client, "http://x", params={}, timeout=1.0, retry_delay_s=0)
+
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_get_with_retry_retries_on_timeout_then_succeeds():
+    client = _QueueClient([httpx.TimeoutException("boom"), _http_response(200)])
+
+    resp = await http_utils._get_with_retry(client, "http://x", params={}, timeout=1.0, retry_delay_s=0)
+
+    assert resp.status_code == 200
+    assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_get_with_retry_exhausts_retries_and_raises():
+    client = _QueueClient([_http_response(503), _http_response(503)])
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await http_utils._get_with_retry(
+            client, "http://x", params={}, timeout=1.0, max_retries=1, retry_delay_s=0,
+        )
+
+    assert client.calls == 2
