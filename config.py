@@ -65,6 +65,17 @@ GDOS_LAYERS = [
 # false "no noise risk" rather than "not covered". See HANDOFF.md — the
 # app shows a static disclaimer instead of a live check.
 
+# GIOŚ (Główny Inspektorat Ochrony Środowiska) — public air-quality API,
+# added 2026-09-04. Unlike most of this app's newer integrations, this one
+# is well corroborated: real captured API responses from several
+# independent open-source projects agree on the exact JSON shape (see
+# HANDOFF.md for citations) — NOT verified live from this app itself
+# (government domains blocked in this sandbox), but meaningfully more
+# solid ground than a guessed URL. The unversioned '/pjp-api/rest/...'
+# base was retired 2025-06-30 (now returns 410 Gone) — this MUST be the
+# '/v1/' base or every request 404s/410s.
+GIOS_API_URL = "https://api.gios.gov.pl/pjp-api/v1/rest"
+
 # Wody Polskie ISOK — official flood-hazard maps (Mapy Zagrozenia Powodziowego),
 # "medium probability" (~1%) flood depth layer. Layers 16 (depth polygons) and
 # 17 (river-basin reference info) confirmed via live GetFeatureInfo test.
@@ -152,6 +163,7 @@ TIMEOUT_ISOK_FLOOD = 30.0  # Wody Polskie ISOK flood-depth WMS
 TIMEOUT_PIG_WATERLOGGING = 30.0  # PIG-PIB waterlogging-risk ArcGIS 'identify'
 TIMEOUT_MIDAS = 30.0  # PIG-PIB MIDAS mining-areas ArcGIS 'identify' — same host/cadence as SOPO
 TIMEOUT_GDOS = 20.0  # GDOŚ protected-areas WFS GetFeature
+TIMEOUT_GIOS = 30.0  # GIOŚ air-quality API — station list, sensors, readings
 TIMEOUT_MPZP_PROBE = 15.0  # MPZP/APP GetMap visual pre-check
 TIMEOUT_MPZP_DETAIL = 12.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in asyncio.wait_for)
 TIMEOUT_OBREB_SCAN = 10.0  # per-obręb brute-force scan (many parallel short requests)
@@ -183,6 +195,8 @@ TTL_NEAREST_ROAD = 30 * _DAY  # OSM road network — rarely changes
 TTL_BUILDINGS = 14 * _DAY  # OSM buildings — new construction is the one thing here that plausibly moves faster
 TTL_MINING_AREAS = 180 * _DAY  # PIG-PIB MIDAS — same geological-survey cadence as SOPO
 TTL_PROTECTED_AREAS = 180 * _DAY  # GDOŚ — protected-area boundaries are a legal act, changes are rare and public
+TTL_AIR_QUALITY_STATIONS = 30 * _DAY  # GIOŚ station list (~288 stations, coordinates) — changes rarely
+TTL_AIR_QUALITY = 3600.0  # GIOŚ readings are HOURLY data — a long TTL here would show stale air quality as current, unlike the geological/legal data above
 # Deliberately NOT cached yet: zoning (plan zagospodarowania — the one
 # service where a change inside the TTL window has real decision
 # relevance) and the parcel's own ULDK identification (its "identity" —
