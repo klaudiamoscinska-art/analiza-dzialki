@@ -15,6 +15,114 @@ pytań, na które odpowiedź jest już tutaj.
 
 ---
 
+## 0. Zacznij tutaj — stan projektu na 2026-09-04
+
+Ten dokument jest długi (opisuje ~4 dni intensywnej pracy) — ta sekcja to
+skrót: co już działa, co jest świadomie odłożone, i co konkretnie czeka na
+decyzję Klaudii. Szczegóły każdego punktu są w dalszych sekcjach (odnośniki
+niżej), ale **nie musisz czytać całego pliku od razu** — zacznij tutaj.
+
+### Co jest już zaimplementowane i działa (nie trzeba tego robić od nowa)
+
+**Analiza Działki (`analiza-dzialki`) — backend FastAPI, 11 sekcji analizy
+działki liczonych RÓWNOLEGLE (`asyncio.gather` w `main.py`), plus osobny
+endpoint wyszukiwania po miejscowości/rozmiarze:**
+- Moduły: `config.py` (stałe/timeouty), `geo_utils.py`, `http_utils.py`
+  (generyczny retry `_get_with_retry`, wyścig mirrorów Overpass, naprawa
+  pustych komunikatów wyjątków `describe_exc`), `services/*.py` (jeden
+  plik na sekcję) — patrz sekcja 3 „Struktura repo".
+- **Cache-aside w SQLite** (`services/cache.py`) dla 10 z 11 sekcji, z
+  osobnym TTL na sekcję (`config.py`, `TTL_*`) — **plan zagospodarowania
+  świadomie NIE jest cache'owany** (patrz TODO niżej, propozycja #2).
+- **Werdykt/checklista** (`services/verdict.py`, wzorowana na darmowym
+  raporcie Działkopedii): score 0-100, poziom (dobra/do_sprawdzenia/
+  wysokie_ryzyko), pełna lista wierszy — **4 poziomy**: `risk` (odejmuje
+  punkty), `warning` (odejmuje punkty), `ok`, i **`unknown`** (sekcja bez
+  danych — dodane 2026-09-04, NIGDY nie odejmuje punktów, ale dostaje
+  własny wiersz z plakietką „BRAK DANYCH" zamiast być całkiem niewidoczna).
+  `incomplete_sections` nadal istnieje osobno jako jedno zdanie
+  podsumowujące nad kartą wyniku.
+- **Lista kroków przed zakupem** (`services/due_diligence.py`) — 25-punktowa
+  checklista due-diligence, odhaczana automatycznie tam, gdzie appka
+  realnie coś sprawdziła.
+- **Media/uzbrojenie terenu** (`services/utilities.py`) — detekcja przez
+  piksele obrazu WMS GetMap (nie geometria wektorowa), z przybliżonym
+  dystansem w metrach dla obecnych mediów, i `status: "error"` (nie
+  fałszywe „ok, brak mediów") gdy WSZYSTKIE 6 warstw zawiedzie.
+- **Plan zagospodarowania** (`services/zoning.py`) — KIAPP (nowy Rejestr
+  Urbanistyczny) i KIMPZP (stary) odpytywane RÓWNOLEGLE, z szybkim
+  podglądem GetMap przed wolnym/zawodnym GetFeatureInfo, i **retry przez
+  `_get_with_retry` na `ConnectTimeout`/5xx** (naprawione 2026-09-04 — była
+  to realna usterka zgłoszona przez Klaudię na żywej działce). Notatka o
+  planie ogólnym/OUZ (zasada z 1.09.2026) dołączana, gdy nie znaleziono
+  MPZP.
+- **Budżet czasu dla `/api/resolve`** (`TIMEOUT_RESOLVE_BUDGET=50s`,
+  `config.py`) — cała kaskada wyszukiwania działki (do 5 etapów) owinięta w
+  `asyncio.wait_for`, więc appka sama zwraca czytelny błąd PO POLSKU zamiast
+  crashować przez limit czasu proxy Render (naprawione 2026-09-04, był to
+  KRYTYCZNY błąd całej analizy — patrz sekcja 3, „Krytyczny błąd").
+- **Overpass API**: wszystkie skonfigurowane mirrory odpytywane RÓWNOLEGLE
+  (wyścig, `asyncio.wait FIRST_COMPLETED`), nie sekwencyjnie — blokada
+  jednego mirroru już nie opóźnia sprawdzenia drugiego.
+- Jakość powietrza (GIOŚ), UI checklisty jako zwarty spis treści z linkami
+  do kart szczegółów (nie duplikacja tekstu), PWA (manifest + service
+  worker, network-first), CI (GitHub Actions), 110 testów pytest
+  (`tests/test_pure_logic.py`, logika bez sieci — sieć rządowa jest
+  całkowicie niedostępna z tego środowiska, patrz sekcja 8).
+- Cache-busting: `static/app.js?v=31`, `CACHE_NAME` service workera `v23`
+  — **podnoś oba przy KAŻDEJ zmianie `app.js`**.
+
+**Wyszukiwarka Działek (`wyszukiwarka-dzialek`) — statyczny frontend:**
+- Tablica `PORTALS` (5 portali z realnie działającymi filtrami: Otodom,
+  OLX, Domiporta, Nieruchomości-online, GetHome), service worker, CI
+  (składnia JS + walidacja JSON). Patrz sekcja 5.
+
+### Co jest świadomie ODŁOŻONE (nie zaczynaj tego bez wyraźnej prośby Klaudii)
+
+- **Status planu ogólnego jako osobny sygnał** (Rejestr Urbanistyczny) —
+  akty na etapie projektu publikowane są na razie WYŁĄCZNIE na BIP-ach
+  poszczególnych gmin, krajowy agregator KIAPP nie ma tych danych do końca
+  okresu przejściowego (30.09/30.11.2026). Nie implementuj przed tą datą —
+  patrz sekcja 7, „Zbadane: status planu ogólnego".
+- **`epodgik.pl` (dostawca Geo-System)** — Klaudia sama znalazła w
+  DevTools bezpośredni endpoint WMS jednej gminy zwracający realny status
+  prawny MPZP (`Status: prawnie wiążący...`). Obiecujący trop, ale wymaga
+  rejestru gmina→dostawca (podobnego do `WFS_POWIAT_REGISTRY` w sekcji 4)
+  — większe przedsięwzięcie, NIE zaimplementowane. Patrz sekcja 7.
+- **`WebFetch` jest całkowicie zablokowany w tym środowisku dla WSZYSTKICH
+  domen** (potwierdzone: gov.pl, geoportal.gov.pl, dane.gov.pl, nawet
+  en.wikipedia.org) — działa tylko `WebSearch`. Nie trać na to czasu
+  ponownie, po prostu użyj `WebSearch` do researchu.
+
+### TODO — aktualne na 2026-09-04, czeka na decyzję/polecenie Klaudii
+
+1. **WSTRZYMANE: podnieść `TIMEOUT_OVERPASS` dalej** (obecnie 30s) —
+   Klaudia potwierdziła na żywo, że odległość do drogi gminnej dalej czasem
+   daje `ReadTimeout` nawet przy 30s. Wznów TYLKO gdy wyraźnie poprosi.
+2. **WSTRZYMANE: zbadać zasięg sieci komórkowej (UKE)**, jak pokazuje
+   Działkopedia. Najpierw research (czy jest darmowe, otwarte API UKE) —
+   NIE implementuj bez potwierdzonego, realnego źródła danych.
+3. **WSTRZYMANE: zbadać skalę Bortle (zanieczyszczenie światłem/hałas)**,
+   jak pokazuje Działkopedia. Jw. — tylko research, dopóki Klaudia nie
+   poprosi o wdrożenie.
+4. **Propozycje optymalizacji wydajności** (appka jest zbyt wolna przy
+   pełnej analizie) — zgłoszone Klaudii 2026-09-04, **żadna NIE jest
+   wdrożona**, czekają na jej wybór:
+   - (a) Jeden trwały `httpx.AsyncClient` na cały czas życia serwera
+     zamiast nowego przy każdym `/api/analyze` (mniej narzutu TCP/TLS).
+   - (b) Cache dla planu zagospodarowania (jedyna z 11 sekcji bez cache,
+     a zarazem najwolniejsza/najmniej niezawodna).
+   - (c) Strumieniowanie wyników (np. SSE) — szybkie sekcje pokazują się
+     od razu, plan zagospodarowania dochodzi jako ostatni, zamiast appka
+     czekała na WSZYSTKIE 11 sekcji naraz.
+5. **Działka testowa „Korbielów 3917/5"** (`241704_2.0002.3917/5`, gmina
+   Jeleśnia, pow. żywiecki) była użyta na żywo przez Klaudię 2026-09-04
+   (m.in. do zgłoszenia błędu ConnectTimeout dla MPZP), ale NIE została
+   jeszcze dopisana do `TEST_PARCELS.md` — dopisz ją, jeśli Klaudia znów
+   się nią posłuży jako działką testową (patrz sekcja 8, punkt 9).
+
+---
+
 ## 1. Dwie osobne aplikacje, dwa osobne repozytoria
 
 | | **Analiza Działki** | **Wyszukiwarka Działek** |
