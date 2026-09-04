@@ -672,6 +672,65 @@ sprawdzające dostępność usług PIG-PIB) i katalog usług PIG-PIB
 (geoportal.pgi.gov.pl/portal/page/portal/uslugi_gis — nie sprawdzony
 bezpośrednio z tego środowiska, warto zajrzeć ręcznie przy okazji).
 
+### Wynik pogrupowany w sekcje — dodane 2026-09-04
+
+Klaudia zauważyła, że appka nie prezentuje wyniku tak "ładnie" jak
+Działkopedia, i poprosiła o pierwszą rundę poprawek wizualnych (świadomie
+NIE pełny redesign od podstaw — to była jej decyzja po przedstawieniu
+dwóch opcji: szybki przegląd vs. pełny redesign, wybrała szybki przegląd
+jako pierwszy krok).
+
+Diagnoza: appka rosła całą sesję funkcja po funkcji — każda nowa sekcja
+(werdykt, obszary chronione, księga wieczysta...) była dokładana jako
+kolejna karta `<div class="card muted">` na końcu tej samej, coraz
+dłuższej kolumny. Efekt: ~10 wizualnie identycznych kart bez żadnej
+hierarchii poza kolorem ryzyka.
+
+Zmiana w `app.js::renderResults()` (bez zmiany logiki poszczególnych
+kart — każda karta budowana dokładnie tak jak wcześniej, tylko zebrana
+do zmiennej zamiast bezpośrednio dopisywana do `html`) + nowe klasy CSS
+w `index.html`:
+
+- **Link row** — 3 przyciski (e-mapa, Geoportal, Google Maps), wcześniej
+  osobno w pełnej szerokości jeden pod drugim, teraz jeden rząd trzech
+  kompaktowych przycisków (`.link-row`).
+- **4 grupy sekcji** w `<details open class="section-group">` (domyślnie
+  ROZWINIĘTE — świadomie, żeby nic nie było ukryte przy pierwszym
+  wejściu, ale zwijalne dla kogoś, kto chce szybko przeskanować wynik):
+  „Plany, stan prawny i ewidencja" (plan zagospodarowania, księga
+  wieczysta, ewidencja+budynki), „Ryzyka środowiskowe" (osuwiska,
+  hydrologia, obszary chronione i geologia), „Media i dostęp do drogi"
+  (GESUT, droga gminna), „Wycena i pozwolenia" (wycena, GUNB). Nagłówek
+  grupy wizualnie cięższy niż nagłówek karty (podkreślenie kolorem
+  `--survey`), żeby dało się od razu odróżnić poziom hierarchii —
+  dokładnie ten sam mechanizm mentalny co "8 obszarów audytu" u
+  konkurencji, tylko dopasowany do tego, co appka faktycznie ma.
+- Werdykt i teryt-echo zostają NAD grupami, zawsze widoczne, bez
+  zwijania — to jest "so what" wyniku, nie szczegół do przejrzenia.
+
+**Zweryfikowane wizualnie, nie tylko składniowo** — pierwszy raz w tej
+sesji faktyczny zrzut ekranu, nie tylko `node --check`/pytest. Playwright
+(Node, `npx playwright install chromium` — pobrało się, `registry.npmjs.org`
+jest w noProxy tego środowiska) z lokalnym serwerem statycznym,
+przechwyconym Leaflet z lokalnego `npm install leaflet` (ten sam wzorzec
+co opisany wcześniej w tym dokumencie), zamockowanym `/api/resolve` i
+`/api/analyze` (realistyczny payload z każdą sekcją, w tym stanem błędu
+dla `protected_areas`, żeby sprawdzić że błąd też wygląda dobrze w nowym
+układzie). Zero błędów JS w konsoli (poza oczekiwanymi błędami sieciowymi
+kafelków mapy, nie zamockowanych). Zrzut ekranu potwierdził: hierarchia
+czytelna, `dataAgeNote()` działa pod każdą kartą, kolory stanu (ok/warn/
+danger) zachowane wewnątrz grup, długi wynik nie sprawia już wrażenia
+"ściany identycznych kart".
+
+Cache-bust: `app.js?v=24`, service worker `v16`.
+
+**Nie zrobione w tej rundzie (świadomie, to nie był zakres "szybkiego
+przeglądu")**: pełna zmiana typografii/palety, ikony przy nagłówkach
+sekcji, progresywne renderowanie (patrz P2 w artefakcie "Plan Pamięci
+Podręcznej" — to osobna, większa zmiana architektoniczna). Jeśli Klaudia
+zechce iść dalej niż ten pierwszy krok, to naturalne miejsce na pełny
+redesign wizualny jako osobną decyzję.
+
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
 To jest najbardziej złożona część appki. Pełny pipeline:
