@@ -24,17 +24,37 @@ def describe_exc(exc: BaseException) -> str:
 
 
 async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, Any]:
+    """Races every configured mirror CONCURRENTLY instead of trying them
+    one after another — fixed 2026-09-04, after Klaudia's nearest-road
+    check kept failing even once TIMEOUT_OVERPASS was corrected to exceed
+    the query's own [timeout:25] (see config.py). A sequential retry means
+    every earlier mirror must first exhaust its own full timeout before the
+    next is even attempted — if one mirror is slow, rate-limited, or
+    silently blocked (a real risk for shared hosting IPs like Render's
+    against free public Overpass instances), that alone was enough to make
+    the whole call time out long before the second, healthy mirror ever
+    got a chance. Racing them fixes both axes at once: worst-case latency
+    drops to a single TIMEOUT_OVERPASS window (not one per mirror), and a
+    blocked mirror no longer delays a healthy one — whichever answers
+    first wins, the rest are cancelled."""
+    async def _try(url: str) -> dict[str, Any]:
+        resp = await client.post(url, data={"data": query}, headers=OVERPASS_HEADERS, timeout=TIMEOUT_OVERPASS)
+        resp.raise_for_status()
+        return resp.json()
+
+    pending = {asyncio.create_task(_try(url)) for url in OVERPASS_URLS}
     last_exc: Optional[Exception] = None
-    for url in OVERPASS_URLS:
-        try:
-            resp = await client.post(
-                url, data={"data": query}, headers=OVERPASS_HEADERS, timeout=TIMEOUT_OVERPASS
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as exc:
-            last_exc = exc
-            continue
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            try:
+                result = task.result()
+            except Exception as exc:
+                last_exc = exc
+                continue
+            for other in pending:
+                other.cancel()
+            return result
     raise last_exc or RuntimeError("Overpass niedostępny")
 
 
