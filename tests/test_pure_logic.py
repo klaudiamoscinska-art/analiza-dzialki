@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import cache, geocoding, uldk, valuation, verdict, wfs_search, zoning
+from services import cache, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -919,3 +919,142 @@ def test_build_verdict_no_missing_plan_flag_when_partial():
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100
     assert result["incomplete_sections"] == []
+
+
+# ---------------------------------------------------------------------------
+# services.nature.get_protected_areas / services.geology.check_mining_areas
+# — items 8/9 from the competitor analysis (2026-09-04). Neither endpoint
+# is verified live (see HANDOFF.md) — these tests cover the parsing/
+# containment/CRS-detection logic against fake responses, not the real
+# services.
+# ---------------------------------------------------------------------------
+
+class _FakeArcgisResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+class _FakeGetJsonClient:
+    def __init__(self, data):
+        self._data = data
+
+    async def get(self, url, params=None, timeout=None):
+        return _FakeArcgisResponse(self._data)
+
+
+class _FailingGetClient:
+    async def get(self, url, params=None, timeout=None):
+        raise RuntimeError("network down")
+
+
+def _square_around(cx, cy, half_extent=100.0):
+    return [[
+        [cx - half_extent, cy - half_extent], [cx + half_extent, cy - half_extent],
+        [cx + half_extent, cy + half_extent], [cx - half_extent, cy + half_extent],
+        [cx - half_extent, cy - half_extent],
+    ]]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_point_inside_polygon_epsg2180():
+    data = {"features": [{
+        "id": "ParkiNarodowe.42",
+        "geometry": {"type": "Polygon", "coordinates": _square_around(500000.0, 300000.0)},
+        "properties": {"nazwa": "Testowy Park Narodowy"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == [{"name": "Testowy Park Narodowy", "kind": "park narodowy"}]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_bbox_hit_but_not_containing_is_excluded():
+    # Poligon daleko od punktu zapytania — nie powinien trafić do wyniku,
+    # nawet jeśli serwer zwrócił go w odpowiedzi na (celowo szeroki) bbox.
+    data = {"features": [{
+        "id": "Rezerwaty.7",
+        "geometry": {"type": "Polygon", "coordinates": _square_around(600000.0, 400000.0)},
+        "properties": {"nazwa": "Daleki Rezerwat"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_detects_wgs84_response_and_transforms_query_point():
+    from services.nature import _to_4326
+
+    qlon, qlat = _to_4326.transform(500000.0, 300000.0)
+    d = 0.001
+    coords = [[[qlon - d, qlat - d], [qlon + d, qlat - d], [qlon + d, qlat + d], [qlon - d, qlat + d], [qlon - d, qlat - d]]]
+    data = {"features": [{
+        "id": "ParkiKrajobrazowe.3",
+        "geometry": {"type": "Polygon", "coordinates": coords},
+        "properties": {"nazwa": "Testowy Park Krajobrazowy"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == [{"name": "Testowy Park Krajobrazowy", "kind": "park krajobrazowy"}]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_no_features_returns_empty_ok():
+    result = await nature.get_protected_areas(_FakeGetJsonClient({"features": []}), 500000.0, 300000.0)
+    assert result == {"status": "ok", "areas": []}
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_dedupes_same_name():
+    poly = _square_around(500000.0, 300000.0)
+    data = {"features": [
+        {"id": "ParkiNarodowe.1", "geometry": {"type": "Polygon", "coordinates": poly}, "properties": {"nazwa": "X"}},
+        {"id": "ParkiNarodowe.2", "geometry": {"type": "Polygon", "coordinates": poly}, "properties": {"nazwa": "X"}},
+    ]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert len(result["areas"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_request_failure_returns_error():
+    result = await nature.get_protected_areas(_FailingGetClient(), 500000.0, 300000.0)
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_present_extracts_names_from_value_field():
+    data = {"results": [{"value": "Obszar górniczy Bogdanka I"}, {"value": "Teren górniczy Bogdanka I"}]}
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient(data), geometry)
+    assert result["status"] == "ok"
+    assert result["has_mining_area"] is True
+    assert result["names"] == ["Obszar górniczy Bogdanka I", "Teren górniczy Bogdanka I"]
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_absent_when_no_results():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient({"results": []}), geometry)
+    assert result["status"] == "ok"
+    assert result["has_mining_area"] is False
+    assert result["names"] == []
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_service_error_response():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient({"error": {"message": "boom"}}), geometry)
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_request_failure_returns_error():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FailingGetClient(), geometry)
+    assert result["status"] == "error"

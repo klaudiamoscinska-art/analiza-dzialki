@@ -72,8 +72,8 @@ from shapely.geometry import mapping
 
 from config import (
     HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TTL_BUILDINGS, TTL_CADASTRE,
-    TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_NEAREST_ROAD, TTL_UTILITIES, TTL_WATERLOGGING,
-    TTL_WATERWAYS, logger,
+    TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
+    TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, logger,
 )
 from geo_utils import geod, to_2180
 from services import cache
@@ -81,7 +81,9 @@ from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
 from services.geocoding import (
     geocode_gmina_candidates, geocode_powiat_gmina_prefixes, resolve_address_to_parcels,
 )
+from services.geology import check_mining_areas
 from services.hazards import check_landslide, get_flood_zone, get_waterlogging_risk
+from services.nature import get_protected_areas
 from services.nearby_features import get_nearest_municipal_road, get_waterways
 from services.uldk import (
     find_parcel_by_id_direct, scan_gmina_obreby_for_parcel, try_numbered_precinct_variants,
@@ -89,6 +91,7 @@ from services.uldk import (
 )
 from services.utilities import check_utilities
 from services.valuation import estimate_value, get_ekw_link, get_emapa_link, get_geoportal_link, get_gunb_link
+from services.verdict import build_verdict
 from services.wfs_search import scan_wfs_for_parcel_number, search_parcels_universal
 from services.zoning import get_zoning
 
@@ -362,9 +365,14 @@ async def analyze(parcel_id: str = Query(default="")):
                 "waterlogging", teryt_id, TTL_WATERLOGGING, lambda: get_waterlogging_risk(client, geometry))),
             _timed("nearest_road", cache.get_or_fetch(
                 "nearest_road", teryt_id, TTL_NEAREST_ROAD, lambda: get_nearest_municipal_road(client, geometry))),
+            _timed("protected_areas", cache.get_or_fetch(
+                "protected_areas", teryt_id, TTL_PROTECTED_AREAS, lambda: get_protected_areas(client, cx2180, cy2180))),
+            _timed("mining_areas", cache.get_or_fetch(
+                "mining_areas", teryt_id, TTL_MINING_AREAS, lambda: check_mining_areas(client, geometry))),
         )
     (landslide, utilities, cadastre, zoning, buildings,
-     waterways, flood_zone, waterlogging, nearest_road) = results
+     waterways, flood_zone, waterlogging, nearest_road,
+     protected_areas, mining_areas) = results
 
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
@@ -372,6 +380,9 @@ async def analyze(parcel_id: str = Query(default="")):
     geoportal_link = get_geoportal_link(parcel["teryt_id"])
     emapa_link = get_emapa_link(parcel["teryt_id"])
     ekw_link = get_ekw_link()
+    verdict = build_verdict(
+        landslide, zoning, flood_zone, waterlogging, utilities, nearest_road, protected_areas,
+    )
 
     return {
         "parcel": {
@@ -387,11 +398,14 @@ async def analyze(parcel_id: str = Query(default="")):
         "geometry_geojson": mapping(geometry),
         "centroid": {"lat": centroid.y, "lon": centroid.x},
         "area_m2": round(area_m2, 2),
+        "verdict": verdict,
         "landslide": landslide,
         "utilities": utilities,
         "cadastre": cadastre,
         "buildings": buildings,
         "zoning": zoning,
+        "protected_areas": protected_areas,
+        "mining_areas": mining_areas,
         "hydrology": {
             "waterways": waterways,
             "flood_zone": flood_zone,

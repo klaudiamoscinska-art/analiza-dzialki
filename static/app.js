@@ -845,6 +845,39 @@
     hyInner += dataAgeNote(ww);
     html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
+    // 4c — Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
+    const pa = data.protected_areas;
+    const ma = data.mining_areas;
+    let natInner = "";
+    if (pa.status === "ok") {
+      natInner += pa.areas.length
+        ? `<p style="color:var(--warn);font-weight:700;">Działka w obszarze chronionym</p>` +
+          pa.areas
+            .map(
+              (a) =>
+                `<div class="waterway-row"><span>${escapeHTML(a.name)}</span><span class="kind">(${escapeHTML(
+                  a.kind
+                )})</span></div>`
+            )
+            .join("")
+        : `<p class="disclaimer">Brak obszarów chronionych GDOŚ (parki narodowe/krajobrazowe, rezerwaty, Natura 2000) w tym miejscu.</p>`;
+      natInner += dataAgeNote(pa);
+    } else {
+      natInner += `<p class="disclaimer">${escapeHTML(pa.message)}</p>`;
+    }
+    if (ma.status === "ok") {
+      natInner += ma.has_mining_area
+        ? `<p style="color:var(--warn);font-weight:700;margin-top:8px;">Działka w terenie/obszarze górniczym (MIDAS)</p><p class="disclaimer">${escapeHTML(
+            ma.names.join(", ")
+          )}</p>`
+        : `<p class="disclaimer" style="margin-top:8px;">Brak wykrytych terenów/obszarów górniczych (MIDAS PIG-PIB).</p>`;
+      natInner += dataAgeNote(ma);
+    } else {
+      natInner += `<p class="disclaimer" style="margin-top:8px;">${escapeHTML(ma.message)}</p>`;
+    }
+    natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
+    html += `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
+
     // 4b — Odległość do najbliższej drogi gminnej
     const nr = data.nearest_road;
     let nrInner = "";
