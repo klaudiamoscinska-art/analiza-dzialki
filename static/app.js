@@ -732,8 +732,8 @@
           </div>
         </div>`;
 
-      const tierLabel = { risk: "ryzyko", warning: "do sprawdzenia", ok: "bez zastrzeżeń" };
-      html += `<div class="checklist-counts">${["risk", "warning", "ok"]
+      const tierLabel = { risk: "ryzyko", warning: "do sprawdzenia", ok: "bez zastrzeżeń", unknown: "brak danych" };
+      html += `<div class="checklist-counts">${["risk", "warning", "ok", "unknown"]
         .map(
           (t) =>
             `<div class="cc ${t}"><span class="cc-num">${v.counts[t] || 0}</span><span class="cc-label">${
@@ -748,14 +748,14 @@
       // każdy wiersz powtarzał to samo zdanie, które i tak jest w karcie
       // szczegółów tej sekcji — usunięte, wiersz to tylko etykieta + pill,
       // klikalny link przewijający do właściwej karty niżej.
-      const pillLabel = { risk: "RYZYKO", warning: "UWAGA", ok: "OK" };
+      const pillLabel = { risk: "RYZYKO", warning: "UWAGA", ok: "OK", unknown: "BRAK DANYCH" };
       const rowAnchor = {
         landslide: "card-landslide", flood_zone: "card-flood_zone", waterlogging: "card-flood_zone",
         protected_areas: "card-protected_areas", mining_areas: "card-protected_areas", zoning: "card-zoning",
         nearest_road: "card-nearest_road", utilities: "card-utilities", air_quality: "card-air_quality",
       };
       const sortedRows = [...v.rows].sort((a, b) => {
-        const order = { risk: 0, warning: 1, ok: 2 };
+        const order = { risk: 0, warning: 1, unknown: 2, ok: 3 };
         return order[a.tier] - order[b.tier];
       });
       html += `<div class="check-rows">${sortedRows

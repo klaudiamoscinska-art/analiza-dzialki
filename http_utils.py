@@ -60,7 +60,7 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
 
 async def _get_with_retry(
     client: httpx.AsyncClient, url: str, *, params: dict[str, Any], timeout: float,
-    max_retries: int = 1, retry_delay_s: float = 2.0,
+    max_retries: int = 1, retry_delay_s: float = 2.0, follow_redirects: bool = False,
 ) -> httpx.Response:
     """Thin retry wrapper for connection/timeout failures — the failure mode
     confirmed (HANDOFF.md section 4) to be transient for individual powiat
@@ -76,7 +76,7 @@ async def _get_with_retry(
     last_exc: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         try:
-            resp = await client.get(url, params=params, timeout=timeout)
+            resp = await client.get(url, params=params, timeout=timeout, follow_redirects=follow_redirects)
             resp.raise_for_status()
             return resp
         except httpx.HTTPStatusError as exc:

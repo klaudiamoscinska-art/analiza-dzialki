@@ -15,7 +15,7 @@ from config import (
     TIMEOUT_MPZP_DETAIL, TIMEOUT_MPZP_PROBE, logger,
 )
 from geo_utils import _clean_feature_info_text, _feature_info_has_data, _parse_feature_info_table
-from http_utils import describe_exc, wms_get_feature_info
+from http_utils import _get_with_retry, describe_exc, wms_get_feature_info
 
 # Keyword-based, best-effort detection of Plan Ogólny / OUZ mentions in
 # whatever KIAPP's GetFeatureInfo happens to return — added 2026-09-03.
@@ -50,15 +50,24 @@ async def _mpzp_has_plan_drawn(
     """GetMap (rendering) responds fast and reliably even for gminas with no
     digitized plan (confirmed live: 0 non-transparent pixels, ~2s). Use it as
     a cheap pre-check before attempting the much less reliable GetFeatureInfo
-    call below."""
+    call below.
+
+    Uses _get_with_retry (fixed 2026-09-04, reported live by Klaudia as a
+    ConnectTimeout for KIMPZP on a parcel where the plan layer visibly
+    rendered on the map moments later) — this used to be a raw, single-shot
+    client.get() with zero retry, so ANY brief connectivity hiccup to
+    GUGiK's own national aggregator (mapy.geoportal.gov.pl) — a real risk
+    already documented for the OTHER government WMS/WFS services this app
+    calls — immediately surfaced as a full section failure instead of being
+    retried once, the same protection wfs_search.py's powiat WFS calls
+    already had."""
     bbox = f"{x_2180-half_extent_m},{y_2180-half_extent_m},{x_2180+half_extent_m},{y_2180+half_extent_m}"
     params = {
         "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
         "LAYERS": layer, "STYLES": "", "SRS": "EPSG:2180", "BBOX": bbox,
         "WIDTH": "150", "HEIGHT": "150", "FORMAT": "image/png", "TRANSPARENT": "true",
     }
-    resp = await client.get(url, params=params, follow_redirects=True, timeout=TIMEOUT_MPZP_PROBE)
-    resp.raise_for_status()
+    resp = await _get_with_retry(client, url, params=params, timeout=TIMEOUT_MPZP_PROBE, follow_redirects=True)
     img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
     return any(px[3] > 10 for px in img.getdata())
 
