@@ -690,18 +690,15 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
-    // Werdykt: jeden syntetyczny wynik na górze, łączący sygnały
-    // pokazane osobno niżej. Patrz services/verdict.py.
+    // Werdykt: wynik + trzykubełkowy licznik + pełna lista statusów (jeden
+    // wiersz na sygnał, łącznie z tymi "OK") — format dopasowany po tym, jak
+    // Klaudia pokazała realny wygląd darmowej oceny Działkopedii: zwarta
+    // lista wierszy zamiast osobnych kart. Patrz services/verdict.py.
     const v = data.verdict;
     if (v) {
       const levelLabel = { dobra: "Dobra", do_sprawdzenia: "Do sprawdzenia", wysokie_ryzyko: "Wysokie ryzyko" }[
         v.level
       ] || v.level;
-      const flagsHTML = v.flags.length
-        ? `<ul class="verdict-flags">${v.flags
-            .map((f) => `<li class="${escapeHTML(f.severity)}">${escapeHTML(f.text)}</li>`)
-            .join("")}</ul>`
-        : `<p style="margin:6px 0 0;font-size:13.5px;">Nie wykryto żadnego z monitorowanych sygnałów ryzyka.</p>`;
       const incompleteHTML = v.incomplete_sections.length
         ? `<p class="verdict-incomplete">Niepełne dane: ${v.incomplete_sections
             .map(escapeHTML)
@@ -712,11 +709,69 @@
           <div class="verdict-score">${v.score}</div>
           <div class="verdict-body">
             <p class="verdict-label">${escapeHTML(levelLabel)}</p>
-            ${flagsHTML}
             ${incompleteHTML}
             <p class="verdict-disclaimer">${escapeHTML(v.disclaimer)}</p>
           </div>
         </div>`;
+
+      const tierLabel = { risk: "ryzyko", warning: "do sprawdzenia", ok: "bez zastrzeżeń" };
+      html += `<div class="checklist-counts">${["risk", "warning", "ok"]
+        .map(
+          (t) =>
+            `<div class="cc ${t}"><span class="cc-num">${v.counts[t] || 0}</span><span class="cc-label">${
+              tierLabel[t]
+            }</span></div>`
+        )
+        .join("")}</div>`;
+
+      const pillLabel = { risk: "RYZYKO", warning: "UWAGA", ok: "OK" };
+      const sortedRows = [...v.rows].sort((a, b) => {
+        const order = { risk: 0, warning: 1, ok: 2 };
+        return order[a.tier] - order[b.tier];
+      });
+      html += `<div class="check-rows">${sortedRows
+        .map(
+          (r) => `
+        <div class="check-row tier-${escapeHTML(r.tier)}">
+          <div class="check-row-head">
+            <span class="check-label">${escapeHTML(r.label)}</span>
+            <span class="check-pill">${pillLabel[r.tier] || ""}</span>
+          </div>
+          <p class="check-text">${escapeHTML(r.text)}</p>
+        </div>`
+        )
+        .join("")}</div>`;
+    }
+
+    // Lista kroków przed zakupem: 25-punktowa checklista due-diligence,
+    // z odhaczonymi punktami, które ta analiza już realnie sprawdziła.
+    // Patrz services/due_diligence.py — czysto prezentacyjne, bez nowych
+    // źródeł danych.
+    const dd = data.due_diligence;
+    if (dd) {
+      const categoriesHTML = dd.categories
+        .map(
+          (cat) => `
+        <div class="dd-category">
+          <div class="dd-cat-head"><span>${escapeHTML(cat.category)}</span><span class="dd-cat-count">${
+            cat.checked
+          }/${cat.total}</span></div>
+          ${cat.items
+            .map(
+              (item) => `
+            <label class="dd-item${item.auto_checked ? " checked" : ""}">
+              <input type="checkbox" disabled${item.auto_checked ? " checked" : ""} />
+              <span>${escapeHTML(item.text)}</span>
+            </label>`
+            )
+            .join("")}
+        </div>`
+        )
+        .join("");
+      html += `<details class="section-group" open>
+        <summary>Lista kroków przed zakupem <span class="section-count">${dd.checked}/${dd.total}</span></summary>
+        ${categoriesHTML}
+      </details>`;
     }
 
     const linkButtons = [];

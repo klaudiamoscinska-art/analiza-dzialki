@@ -81,6 +81,7 @@ from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
 from services.geocoding import (
     geocode_gmina_candidates, geocode_powiat_gmina_prefixes, resolve_address_to_parcels,
 )
+from services.due_diligence import build_due_diligence_checklist
 from services.geology import check_mining_areas
 from services.hazards import check_landslide, get_flood_zone, get_waterlogging_risk
 from services.nature import get_protected_areas
@@ -381,8 +382,30 @@ async def analyze(parcel_id: str = Query(default="")):
     emapa_link = get_emapa_link(parcel["teryt_id"])
     ekw_link = get_ekw_link()
     verdict = build_verdict(
-        landslide, zoning, flood_zone, waterlogging, utilities, nearest_road, protected_areas,
+        landslide, zoning, flood_zone, waterlogging, utilities, nearest_road, protected_areas, mining_areas,
     )
+
+    # Które z 25 punktów listy "przed zakupem" ta analiza już realnie
+    # sprawdziła — patrz services/due_diligence.py. "power"/"water_sewage"
+    # dzielą jeden status usługi (utilities), bo to jedno zapytanie GESUT
+    # sprawdza oba naraz.
+    covered = set()
+    if flood_zone.get("status") == "ok":
+        covered.add("flood_zone")
+    if protected_areas.get("status") == "ok":
+        covered.add("protected_areas")
+    if landslide.get("status") == "ok":
+        covered.add("landslide")
+    if zoning.get("status") in ("ok", "partial"):
+        covered.add("zoning_mpzp")
+    if nearest_road.get("status") == "ok":
+        covered.add("road")
+    if utilities.get("status") == "ok":
+        covered.add("power")
+        covered.add("water_sewage")
+    if valuation.get("status") == "ok":
+        covered.add("valuation")
+    due_diligence = build_due_diligence_checklist(covered)
 
     return {
         "parcel": {
@@ -399,6 +422,7 @@ async def analyze(parcel_id: str = Query(default="")):
         "centroid": {"lat": centroid.y, "lon": centroid.x},
         "area_m2": round(area_m2, 2),
         "verdict": verdict,
+        "due_diligence": due_diligence,
         "landslide": landslide,
         "utilities": utilities,
         "cadastre": cadastre,

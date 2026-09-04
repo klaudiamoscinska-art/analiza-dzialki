@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import cache, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning
+from services import cache, due_diligence, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -836,9 +836,14 @@ async def test_get_or_fetch_services_are_independent(cache_db):
 
 
 # ---------------------------------------------------------------------------
-# services.verdict.build_verdict — synthesized score/verdict (2026-09-04,
-# item 6 from the "Rozpoznanie Działkopedii" work plan). Pure, deterministic
-# point-based rules — every deduction is named in 'flags', never a black box.
+# services.verdict.build_verdict — synthesized score/verdict + full status
+# checklist (2026-09-04, item 6 from "Rozpoznanie Działkopedii", extended
+# same day after Klaudia shared Działkopedia's real free-tier report: its
+# whole result is a compact row list — label/pill/one-liner — with a 3-way
+# risk/warning/ok count, not just a list of problems). Pure, deterministic
+# point-based rules — every deduction is named in a 'row', never a black
+# box, and every row (including the clean ones) is returned, not just the
+# flagged ones.
 # ---------------------------------------------------------------------------
 
 def _clean_signals():
@@ -850,27 +855,33 @@ def _clean_signals():
         utilities={"status": "ok", "utilities": [{"present": True}] * 4 + [{"present": False}] * 2},
         nearest_road={"status": "ok", "found": "yes", "is_fallback_powiatowa": False},
         protected_areas={"status": "ok", "areas": []},
+        mining_areas={"status": "ok", "has_mining_area": False},
     )
+
+
+def _row(result, key):
+    return next(r for r in result["rows"] if r["key"] == key)
 
 
 def test_build_verdict_all_clean_scores_100_dobra():
     result = verdict.build_verdict(**_clean_signals())
     assert result["score"] == 100
     assert result["level"] == "dobra"
-    assert result["flags"] == []
     assert result["incomplete_sections"] == []
+    assert result["counts"] == {"risk": 0, "warning": 0, "ok": 8}
+    assert all(r["tier"] == "ok" for r in result["rows"])
 
 
-def test_build_verdict_landslide_and_flood_are_critical_and_stack():
+def test_build_verdict_landslide_and_flood_are_risk_and_stack():
     signals = _clean_signals()
     signals["landslide"] = {"status": "ok", "has_landslide": True}
     signals["flood_zone"] = {"status": "ok", "in_flood_zone": True}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100 - 40 - 35
     assert result["level"] == "wysokie_ryzyko"
-    severities = {f["severity"] for f in result["flags"]}
-    assert "critical" in severities
-    assert len(result["flags"]) == 2
+    assert result["counts"]["risk"] == 2
+    assert _row(result, "landslide")["tier"] == "risk"
+    assert _row(result, "flood_zone")["tier"] == "risk"
 
 
 def test_build_verdict_score_never_goes_below_zero():
@@ -882,43 +893,96 @@ def test_build_verdict_score_never_goes_below_zero():
     signals["nearest_road"] = {"status": "ok", "found": "no"}
     signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
     signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Park X"}]}
+    signals["mining_areas"] = {"status": "ok", "has_mining_area": True}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 0
     assert result["level"] == "wysokie_ryzyko"
 
 
-def test_build_verdict_failed_section_is_incomplete_not_a_flag():
+def test_build_verdict_failed_section_is_incomplete_no_row_no_deduction():
     signals = _clean_signals()
     signals["landslide"] = {"status": "error", "message": "usługa niedostępna"}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100  # brak danych nie obniża wyniku
     assert "zagrożenie osuwiskowe" in result["incomplete_sections"]
-    assert result["flags"] == []
+    assert not any(r["key"] == "landslide" for r in result["rows"])
 
 
-def test_build_verdict_no_utilities_detected_flags_warning():
+def test_build_verdict_no_utilities_detected_is_warning():
     signals = _clean_signals()
     signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100 - 15
-    assert any("mediów" in f["text"] for f in result["flags"])
+    row = _row(result, "utilities")
+    assert row["tier"] == "warning"
+    assert "mediów" in row["text"]
 
 
-def test_build_verdict_protected_area_names_included_in_flag_text():
+def test_build_verdict_protected_area_names_included_in_row_text():
     signals = _clean_signals()
     signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Rezerwat Wiślany"}]}
     result = verdict.build_verdict(**signals)
-    assert any("Rezerwat Wiślany" in f["text"] for f in result["flags"])
+    assert "Rezerwat Wiślany" in _row(result, "protected_areas")["text"]
+
+
+def test_build_verdict_mining_area_is_warning():
+    signals = _clean_signals()
+    signals["mining_areas"] = {"status": "ok", "has_mining_area": True}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100 - 10
+    assert _row(result, "mining_areas")["tier"] == "warning"
 
 
 def test_build_verdict_no_missing_plan_flag_when_partial():
     # status "partial" (plan wykryty, ale szczegóły nie doszły) nie powinien
-    # trafić ani do flag, ani do incomplete_sections — to nie jest "brak planu".
+    # trafić do incomplete_sections — to nie jest "brak planu", tylko wiersz
+    # ostrzegawczy bez odjęcia punktów.
     signals = _clean_signals()
     signals["zoning"] = {"status": "partial", "found": "yes", "message": "timeout"}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100
     assert result["incomplete_sections"] == []
+    assert _row(result, "zoning")["tier"] == "warning"
+
+
+# ---------------------------------------------------------------------------
+# services.due_diligence.build_due_diligence_checklist — the 25-point
+# pre-purchase checklist (2026-09-04), marking which steps this app's own
+# data already covers. Purely presentational: no new data source.
+# ---------------------------------------------------------------------------
+
+def test_due_diligence_checklist_has_25_items_in_7_categories():
+    result = due_diligence.build_due_diligence_checklist(set())
+    assert result["total"] == 25
+    assert len(result["categories"]) == 7
+    assert result["checked"] == 0
+
+
+def test_due_diligence_checklist_marks_covered_items():
+    covered = {"flood_zone", "landslide", "road"}
+    result = due_diligence.build_due_diligence_checklist(covered)
+    assert result["checked"] == 3
+    flat_items = [item for cat in result["categories"] for item in cat["items"]]
+    checked_texts = {i["text"] for i in flat_items if i["auto_checked"]}
+    assert "Sprawdź strefę zalewową" in checked_texts
+    assert "Sprawdź zagrożenie osuwiskowe i warunki gruntowe" in checked_texts
+    assert "Sprawdź dostęp do drogi publicznej" in checked_texts
+
+
+def test_due_diligence_checklist_items_with_no_coverage_never_auto_checked():
+    # np. wizyta osobista na działce — appka nigdy nie może tego sama sprawdzić.
+    result = due_diligence.build_due_diligence_checklist({"flood_zone", "landslide", "road", "power",
+                                                            "water_sewage", "protected_areas", "zoning_mpzp",
+                                                            "valuation"})
+    flat_items = [item for cat in result["categories"] for item in cat["items"]]
+    visit_item = next(i for i in flat_items if i["text"] == "Odwiedź działkę osobiście")
+    assert visit_item["auto_checked"] is False
+
+
+def test_due_diligence_checklist_category_counts_sum_to_total():
+    result = due_diligence.build_due_diligence_checklist({"power", "water_sewage"})
+    assert sum(cat["total"] for cat in result["categories"]) == 25
+    assert sum(cat["checked"] for cat in result["categories"]) == result["checked"] == 2
 
 
 # ---------------------------------------------------------------------------
