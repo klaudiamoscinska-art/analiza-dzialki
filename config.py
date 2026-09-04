@@ -157,7 +157,11 @@ logger = logging.getLogger("analiza_dzialki")
 # --------------------------------------------------------------------------
 TIMEOUT_DEFAULT = 20.0  # default httpx.AsyncClient timeout (most WMS/ArcGIS 'identify' calls)
 TIMEOUT_GEOCODER = 15.0  # GUGiK geocoder (capap.gugik.gov.pl)
-TIMEOUT_OVERPASS = 14.0  # OpenStreetMap Overpass API
+TIMEOUT_OVERPASS = 30.0  # OpenStreetMap Overpass API — MUST exceed the "[timeout:25]" directive
+# inside every Overpass query in services/nearby_features.py (fixed 2026-09-04, reported live by
+# Klaudia as an intermittent "usługa niedostępna" for the nearest-road check): a client timeout
+# shorter than the server-side budget we ourselves grant the query means we give up before Overpass
+# would have, turning "the server is a bit busy" into a false "the server is down" every time.
 TIMEOUT_WFS_POWIAT = 45.0  # individual powiat WFS servers — confirmed slow, keep generous
 TIMEOUT_ISOK_FLOOD = 30.0  # Wody Polskie ISOK flood-depth WMS
 TIMEOUT_PIG_WATERLOGGING = 30.0  # PIG-PIB waterlogging-risk ArcGIS 'identify'
