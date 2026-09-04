@@ -87,7 +87,7 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
   patrz sekcja 3.
 - Jakość powietrza (GIOŚ), UI checklisty jako zwarty spis treści z linkami
   do kart szczegółów (nie duplikacja tekstu), PWA (manifest + service
-  worker, network-first), CI (GitHub Actions), 113 testów pytest
+  worker, network-first), CI (GitHub Actions), 115 testów pytest
   (`tests/test_pure_logic.py`, logika bez sieci — sieć rządowa jest
   całkowicie niedostępna z tego środowiska, patrz sekcja 8).
 - Cache-busting: `static/app.js?v=32`, `CACHE_NAME` service workera `v24`
@@ -140,16 +140,22 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
    wcześniejszej naprawy (retry). **Prawdziwa przyczyna znaleziona i
    potwierdzona na żywo 2026-09-04** (patrz sekcja 3.1, „Prawdziwa
    przyczyna: przeciążenie zasobów na Render"): to NIE problem sieciowy
-   (pierwsza hipoteza — wymuszenie IPv4 — WYPRÓBOWANA i WYCOFANA, nie
-   pomogła), tylko przeciążenie backendu na Render (plan darmowy,
-   `WEB_CONCURRENCY=1`) przy 12 równoległych zapytaniach dla cięższych
-   lokalizacji — potwierdzone tym, że w tej samej analizie ROWNIEŻ sekcje
-   Overpass dostają timeout, a druga działka testowa (Zawoja, lżejsza
-   lokalizacja) działa bez problemu. **Plan naprawy (ograniczenie
-   współbieżności/`asyncio.Semaphore`, zdjęcie CPU-bound pracy z pętli
-   zdarzeń, ew. płatny plan Render) przygotowany, ale świadomie NIE
-   wdrożony w tej rundzie** (na wyraźną prośbę Klaudii) — patrz sekcja
-   3.1, „Plan naprawy: zmniejszenie obciążenia współbieżnego".
+   (pierwsza hipoteza — wymuszenie IPv4 — WYPRÓBOWANA, WERYFIKOWANA NA
+   ŻYWO i WYCOFANA w #34, zmergowany do `main`), tylko przeciążenie
+   backendu na Render (plan darmowy, `WEB_CONCURRENCY=1`) przy 12
+   równoległych zapytaniach dla cięższych lokalizacji — potwierdzone tym,
+   że w tej samej analizie RÓWNIEŻ sekcje Overpass dostają timeout, a
+   druga działka testowa (Zawoja, lżejsza lokalizacja) działa bez
+   problemu. **Plan naprawy (ograniczenie współbieżności/
+   `asyncio.Semaphore`, zdjęcie CPU-bound pracy z pętli zdarzeń przez
+   `asyncio.to_thread`) WDROŻONY na osobnym branchu
+   `claude/render-concurrency-limit`** — świadomie NIE zmergowany, NIE
+   zdeployowany, NIE zweryfikowany na żywo (na wyraźną prośbę Klaudii, żeby
+   cofnięcie IPv4 mogło zostać sprawdzone na produkcji niezależnie od tej
+   większej zmiany) — patrz sekcja 3.1, podsekcja „Kroki 1+2 WDROŻONE na
+   osobnym branchu". **Następny krok dla Klaudii**: przejrzeć branch,
+   zmergować gdy gotowa, zdeployować, powtórzyć „Korbielów 3917/5" kilka
+   razy na żywo.
 
 ---
 
@@ -1817,7 +1823,7 @@ połączeniach do konkretnego hosta. Świadomie NIE zaczynam wdrażać tego w
 tej rundzie — Klaudia poprosiła tylko o plan (patrz niżej), decyzja co
 i kiedy wdrożyć należy do niej.
 
-#### Plan naprawy: zmniejszenie obciążenia współbieżnego na Render (plan darmowy) — NIE WDROŻONY, czeka na decyzję Klaudii
+#### Plan naprawy: zmniejszenie obciążenia współbieżnego na Render (plan darmowy)
 
 1. **Ogranicz liczbę naprawdę równoległych zapytań sieciowych**
    (`asyncio.Semaphore` w `main.py::_section_specs()` lub w
@@ -1845,6 +1851,69 @@ i kiedy wdrożyć należy do niej.
    że przeciążenie faktycznie ustąpiło, nie że akurat się poszczęściło)
    i sprawdzić, czy `_get_with_retry` przestał logować `nieudana po`
    blisko granicy skonfigurowanych timeoutów.
+
+#### Kroki 1+2 WDROŻONE na osobnym branchu `claude/render-concurrency-limit` — 2026-09-04, NIE ZMERGOWANY, NIE zdeployowany, NIE zweryfikowany na żywo
+
+Na prośbę Klaudii ("zajmij się wdrażaniem na osobnym branchu") — celowo
+osobny branch od głównego, żeby cofnięcie IPv4 (#34) mogło zostać
+zmergowane i sprawdzone na żywo niezależnie od tej, większej zmiany.
+
+**Krok 1 — `asyncio.Semaphore` w `main.py::_section_specs()`.** Nowa stała
+`MAX_CONCURRENT_SECTIONS = 5` (`config.py`, wybrana jako środek
+proponowanego zakresu 4-6 — NIE dostrojona względem żywych metryk Render,
+niedostępnych z tego środowiska). Każda z 12 gałęzi (`landslide`,
+`utilities`, ..., `air_quality`) owinięta w `_limited(coro)`, który trzyma
+wspólne `asyncio.Semaphore(MAX_CONCURRENT_SECTIONS)` przez cały czas
+wykonania — tylko `MAX_CONCURRENT_SECTIONS` gałęzi naraz faktycznie robi
+swój fetch, reszta czeka na zwolnienie "miejsca". Jeden semafor NA
+WYWOŁANIE `_section_specs()` (czyli na request), nie globalny na cały
+proces — appka w praktyce obsługuje jedną analizę naraz, a semafor
+per-request unika jakiejkolwiek nieoczekiwanej interakcji między
+równoległymi requestami, które dałby semafor globalny. Działa
+automatycznie dla OBU endpointów (`/api/analyze` przez `asyncio.gather`,
+`/api/analyze-stream` przez `asyncio.ensure_future`+`as_completed`), bo
+limitowanie jest wewnątrz samej korutyny, niezależnie od tego, jak jest
+zaplanowana. Testy: `test_section_specs_caps_concurrent_fetches`
+(zamockowane wszystkie 12 usług śpiące 20ms, mierzy realną maksymalną
+liczbę naraz aktywnych przez `asyncio.Lock`+licznik — potwierdza limit 3)
+i `test_section_specs_without_cap_would_run_all_12_at_once` (kontrola:
+przy limicie 12 wszystkie 12 faktycznie biegnie naraz — potwierdza, że
+pierwszy test naprawdę sprawdza limit, nie mierzy czegoś, co i tak było
+niskie).
+
+**Krok 2 — `asyncio.to_thread(...)` dla trzech najcięższych operacji
+CPU-bound.** Bez zmiany logiki, tylko przeniesienie wykonania z pętli
+zdarzeń na wątek roboczy:
+- `services/zoning.py::_mpzp_has_plan_drawn` — dekodowanie obrazu PIL +
+  skan do 150×150=22500 pikseli wydzielony do nowej, czysto synchronicznej
+  `_has_nontransparent_pixel(content: bytes) -> bool`, wołanej przez
+  `asyncio.to_thread`.
+- `services/utilities.py::check_utilities` — analogicznie, skan do
+  240×240=57600 pikseli PER warstwa (6 warstw naraz = do ~345600 pikseli
+  łącznie na jedno wywołanie — to najcięższy pojedynczy fragment CPU w
+  całej appce) wydzielony do `_scan_pixels(content: bytes) -> tuple[int,
+  Optional[float]]`.
+- `http_utils.py::_overpass_query` — `resp.json()` (synchroniczny
+  `json.loads` stdlib) też przez `asyncio.to_thread` — duża odpowiedź
+  Overpass dla gminy z dużą ilością danych OSM może zajmować realny czas
+  CPU.
+
+Świadomie NIE ruszone w tej rundzie: geometria Shapely w
+`services/cadastre.py` (dopasowanie budynków) — z planu wyżej, zostawione
+jako możliwy kolejny krok, jeśli 1+2 nie wystarczą (mniejszy, bardziej
+niejednoznaczny zysk, większe ryzyko przy pierwszej próbie). 115 testów
+pytest (było 113, +2 dla semafora — same operacje `asyncio.to_thread` nie
+mają OSOBNYCH nowych testów, bo nie zmieniają zachowania/wyniku, tylko
+kontekst wykonania — pokrywają je już istniejące testy `_mpzp_has_plan_drawn`/
+`check_utilities`/`_overpass_query`, wszystkie zielone).
+
+**Świadomie NIE zmergowane i NIE zdeployowane w tej rundzie** — Klaudia
+poprosiła o wdrożenie NA OSOBNYM BRANCHU, żeby najpierw sprawdzić na żywo,
+czy cofnięcie IPv4 (#34) samo w sobie niczego nie popsuło. Do zrobienia
+przez Klaudię: przejrzeć branch `claude/render-concurrency-limit`, zdecydować
+czy mergować, zdeployować, powtórzyć „Korbielów 3917/5" kilka razy pod rząd
+na żywo i sprawdzić logi pod kątem tego, czy timeouty (MPZP i Overpass)
+ustąpiły.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

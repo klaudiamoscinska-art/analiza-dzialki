@@ -1896,3 +1896,89 @@ def test_analyze_and_analyze_stream_agree_on_sections_and_derived_fields(monkeyp
     assert meta_payload["area_m2"] == plain_data["area_m2"]
     assert meta_payload["permits"] == plain_data["permits"]
     assert meta_payload["land_registry"] == plain_data["land_registry"]
+
+
+# ---------------------------------------------------------------------------
+# main._section_specs — MAX_CONCURRENT_SECTIONS semaphore, added 2026-09-04.
+# Confirmed live (see HANDOFF.md, "Prawdziwa przyczyna: przeciążenie
+# zasobów na Render"): firing all 12 branches at once for a data-heavy
+# parcel overwhelmed Render's free-tier single thread badly enough that
+# UNRELATED external services (GUGiK's MPZP host AND OpenStreetMap
+# Overpass, in the same analysis run) each timed out near their own
+# configured limit. A first fix attempt (forcing IPv4 for the MPZP host)
+# was reverted after live verification showed it didn't help — the real
+# fix is capping how many branches actually run their fetch at once.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_section_specs_caps_concurrent_fetches(monkeypatch, cache_db):
+    current = 0
+    max_seen = 0
+    guard = asyncio.Lock()
+
+    async def fake_service(*_a, **_k):
+        nonlocal current, max_seen
+        async with guard:
+            current += 1
+            max_seen = max(max_seen, current)
+        await asyncio.sleep(0.02)
+        async with guard:
+            current -= 1
+        return {"status": "ok"}
+
+    for name in (
+        "check_landslide", "check_utilities", "get_cadastre_basic", "get_zoning",
+        "get_buildings_on_parcel", "get_waterways", "get_flood_zone", "get_waterlogging_risk",
+        "get_nearest_municipal_road", "get_protected_areas", "check_mining_areas", "get_air_quality",
+    ):
+        monkeypatch.setattr(main, name, fake_service)
+    monkeypatch.setattr(main, "MAX_CONCURRENT_SECTIONS", 3)
+
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    specs = main._section_specs(
+        client=None, teryt_id="TEST_CONCURRENCY/1", geometry=geometry,
+        cx2180=0.0, cy2180=0.0, centroid=geometry.centroid,
+    )
+    assert len(specs) == len(_SECTION_KEYS)
+
+    await asyncio.gather(*[coro for _name, coro in specs])
+
+    assert max_seen == 3, f"powinno dojść dokładnie do limitu (3), a nie {max_seen}"
+
+
+@pytest.mark.asyncio
+async def test_section_specs_without_cap_would_run_all_12_at_once(monkeypatch, cache_db):
+    # Sanity check for the test above: WITHOUT the semaphore (limit >= 12),
+    # all 12 branches genuinely do run concurrently — confirms
+    # test_section_specs_caps_concurrent_fetches is actually exercising the
+    # cap, not just measuring something that was already low.
+    current = 0
+    max_seen = 0
+    guard = asyncio.Lock()
+
+    async def fake_service(*_a, **_k):
+        nonlocal current, max_seen
+        async with guard:
+            current += 1
+            max_seen = max(max_seen, current)
+        await asyncio.sleep(0.02)
+        async with guard:
+            current -= 1
+        return {"status": "ok"}
+
+    for name in (
+        "check_landslide", "check_utilities", "get_cadastre_basic", "get_zoning",
+        "get_buildings_on_parcel", "get_waterways", "get_flood_zone", "get_waterlogging_risk",
+        "get_nearest_municipal_road", "get_protected_areas", "check_mining_areas", "get_air_quality",
+    ):
+        monkeypatch.setattr(main, name, fake_service)
+    monkeypatch.setattr(main, "MAX_CONCURRENT_SECTIONS", 12)
+
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    specs = main._section_specs(
+        client=None, teryt_id="TEST_CONCURRENCY/2", geometry=geometry,
+        cx2180=0.0, cy2180=0.0, centroid=geometry.centroid,
+    )
+    await asyncio.gather(*[coro for _name, coro in specs])
+
+    assert max_seen == len(_SECTION_KEYS)

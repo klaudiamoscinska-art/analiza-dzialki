@@ -73,9 +73,9 @@ from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
 
 from config import (
-    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TIMEOUT_RESOLVE_BUDGET, TTL_AIR_QUALITY, TTL_BUILDINGS,
-    TTL_CADASTRE, TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
-    TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, TTL_ZONING, logger,
+    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, MAX_CONCURRENT_SECTIONS, TIMEOUT_RESOLVE_BUDGET,
+    TTL_AIR_QUALITY, TTL_BUILDINGS, TTL_CADASTRE, TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS,
+    TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS, TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, TTL_ZONING, logger,
 )
 from geo_utils import geod, to_2180
 from http_utils import describe_exc
@@ -400,8 +400,26 @@ def _section_specs(
     so /api/analyze (asyncio.gather, all-at-once) and /api/analyze-stream
     (asyncio.as_completed, progressive SSE) share the exact same list
     instead of two copies that could silently drift apart (different TTL, a
-    service added to one but not the other, etc)."""
-    return [
+    service added to one but not the other, etc).
+
+    Each branch is wrapped in a shared `asyncio.Semaphore(MAX_CONCURRENT_SECTIONS)`
+    (added 2026-09-04 — see config.py's comment on MAX_CONCURRENT_SECTIONS for
+    the live evidence this addresses): confirmed live that firing all 12 at
+    once overwhelms Render's free-tier single thread for data-heavy parcels,
+    causing UNRELATED external services to each time out near their own
+    configured limit. Only MAX_CONCURRENT_SECTIONS branches actually run
+    their fetch at a time; the rest wait their turn on the semaphore instead
+    of piling on top of an already-saturated event loop. One semaphore per
+    call (per request), not a module-level global — this app effectively
+    serves one analysis at a time in practice, and a per-request semaphore
+    avoids any cross-request interaction that a shared global would risk."""
+    sem = asyncio.Semaphore(MAX_CONCURRENT_SECTIONS)
+
+    async def _limited(coro: Awaitable[dict[str, Any]]) -> dict[str, Any]:
+        async with sem:
+            return await coro
+
+    specs = [
         ("landslide", cache.get_or_fetch(
             "landslide", teryt_id, TTL_LANDSLIDE, lambda: check_landslide(client, geometry))),
         ("utilities", cache.get_or_fetch(
@@ -432,6 +450,7 @@ def _section_specs(
         ("air_quality", cache.get_or_fetch(
             "air_quality", teryt_id, TTL_AIR_QUALITY, lambda: get_air_quality(client, centroid.x, centroid.y))),
     ]
+    return [(name, _limited(coro)) for name, coro in specs]
 
 
 def _compute_derived(parcel: dict[str, Any], area_m2: float, results: dict[str, Any]) -> dict[str, Any]:
