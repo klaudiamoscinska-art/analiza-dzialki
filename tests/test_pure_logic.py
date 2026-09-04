@@ -10,6 +10,8 @@ builders, and the WFS registry lookup rules.
 Run with: pytest (after `pip install -r requirements-dev.txt`).
 """
 import io
+import pathlib
+import re
 
 import httpx
 import pytest
@@ -18,7 +20,7 @@ from shapely.geometry import Polygon
 
 import geo_utils
 import http_utils
-from config import KIAPP_URL, KIMPZP_URL
+from config import KIAPP_URL, KIMPZP_URL, TIMEOUT_OVERPASS
 from services import (
     air_quality, cache, due_diligence, geocoding, geology, nature, uldk, utilities, valuation, verdict, wfs_search,
     zoning,
@@ -1521,3 +1523,27 @@ async def test_get_with_retry_exhausts_retries_and_raises():
         )
 
     assert client.calls == 2
+
+
+# ---------------------------------------------------------------------------
+# config.TIMEOUT_OVERPASS vs. the in-query "[timeout:N]" directives in
+# services/nearby_features.py. Fixed 2026-09-04, reported live by Klaudia
+# as an intermittent "usługa OpenStreetMap/Overpass niedostępna" for the
+# nearest-road check: TIMEOUT_OVERPASS was 14s while every query told the
+# server it had up to 25s — our own client gave up before the server's own
+# granted budget closed, turning "a bit busy" into a false "down", roughly
+# whenever Overpass took 14-25s to answer. Regression guard: parses the
+# actual query strings (not a hardcoded number) so it stays correct if the
+# in-query timeout is ever deliberately changed alongside TIMEOUT_OVERPASS.
+# ---------------------------------------------------------------------------
+
+def test_timeout_overpass_exceeds_every_in_query_overpass_timeout():
+    source = pathlib.Path(__file__).resolve().parent.parent / "services" / "nearby_features.py"
+    text = source.read_text()
+    in_query_timeouts = [int(m) for m in re.findall(r"\[timeout:(\d+)\]", text)]
+    assert in_query_timeouts, "brak dyrektyw [timeout:N] — czy format zapytania się zmienił?"
+    assert TIMEOUT_OVERPASS > max(in_query_timeouts), (
+        f"TIMEOUT_OVERPASS ({TIMEOUT_OVERPASS}s) musi przewyższać każdą dyrektywę "
+        f"[timeout:N] w zapytaniach Overpass (max znaleziony: {max(in_query_timeouts)}s), "
+        "inaczej klient zrezygnuje, zanim serwer sam by skończył."
+    )

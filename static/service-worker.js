@@ -14,7 +14,7 @@
 // "sieć najpierw" może i tak cicho oddać stary plik z dysku, zwłaszcza
 // w appce dodanej do ekranu głównego (iOS Safari rzadziej sprawdza
 // aktualizację service workera niż zwykła karta). Stąd `no-store` niżej.
-const CACHE_NAME = "analiza-dzialki-v20";
+const CACHE_NAME = "analiza-dzialki-v21";
 const APP_SHELL = [
   "/",
   "/static/app.js",
@@ -42,7 +42,20 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  // new URL() rzuca "The string did not match the expected pattern" dla
+  // pewnych żądań na iOS Safari (potwierdzone na żywo przez Klaudię —
+  // ten sam surowy, angielski komunikat przeglądarki, niepochodzący z
+  // żadnego kodu tej appki, wyciekł do UI) — dodane 2026-09-04. Ten
+  // konkretny fetch event nie jest wart przechwytywania/cache'owania,
+  // więc zamiast crashować cały handler, po prostu go pomijamy i
+  // pozwalamy przeglądarce obsłużyć go normalnie, tak jakby service
+  // workera tu nie było.
+  let url;
+  try {
+    url = new URL(event.request.url);
+  } catch (err) {
+    return;
+  }
 
   // Nigdy nie cache'uj wywołań do API — dane muszą być zawsze aktualne.
   if (url.pathname.startsWith("/api/")) {

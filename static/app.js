@@ -469,6 +469,23 @@
     btnLabel.textContent = isLoading ? "Sprawdzanie…" : "Sprawdź działkę";
   }
 
+  function friendlyErrorMessage(err) {
+    // Błędy, które appka sama rzuca (throw new Error(...)) mają zawsze
+    // sensowny, polski tekst — pokaż go wprost. Każdy INNY typ błędu
+    // (TypeError, SyntaxError z nieudanego JSON.parse, natywny błąd
+    // przeglądarki typu "The string did not match the expected pattern"
+    // z fetch()/URL(), zaobserwowany na żywo przez Klaudię na iOS Safari)
+    // nie jest czymś, co appka świadomie przewidziała i przetłumaczyła —
+    // dodane 2026-09-04. Pełny błąd nadal ląduje w konsoli do diagnozy,
+    // ale użytkownik widzi zrozumiały komunikat zamiast surowego tekstu
+    // silnika przeglądarki.
+    if (err instanceof Error && err.constructor === Error && err.message) {
+      return err.message;
+    }
+    console.error("Nieoczekiwany błąd:", err);
+    return "Wystąpił nieoczekiwany błąd sieci lub przeglądarki — spróbuj ponownie za chwilę.";
+  }
+
   function showError(message) {
     errorBox.textContent = message;
     errorBox.style.display = "block";
@@ -523,7 +540,7 @@
         setLoading(false);
       }
     } catch (err) {
-      showError(err.message || "Wystąpił nieoczekiwany błąd.");
+      showError(friendlyErrorMessage(err));
       results.innerHTML = "";
       setLoading(false);
     }
@@ -557,7 +574,7 @@
         setAddressLoading(false);
       }
     } catch (err) {
-      showError(err.message || "Wystąpił nieoczekiwany błąd.");
+      showError(friendlyErrorMessage(err));
       results.innerHTML = "";
       setAddressLoading(false);
     }
@@ -581,7 +598,7 @@
         renderSwitcherBar(terytId);
       }
     } catch (err) {
-      showError(err.message || "Wystąpił nieoczekiwany błąd.");
+      showError(friendlyErrorMessage(err));
       results.innerHTML = "";
       if (currentCandidates.length > 1) {
         renderSwitcherBar(terytId);

@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 103 testy dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 104 testy dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -1066,6 +1066,72 @@ warto było przy okazji sprawdzić rzeczy, których nie dało się złapać w
 tym środowisku (sandbox nie ma dostępu do żadnej z tych usług na żywo).
 
 Cache-bust: `app.js?v=28`, service worker `v20`.
+
+### Kolejne dwie usterki z żywego testu — "The string did not match" + droga gminna "czasem nie działa" — dodane 2026-09-04
+
+Klaudia od razu po powyższej naprawie zgłosiła (ze zrzutem ekranu z iOS
+Safari, PWA na ekranie głównym) surowy, angielski komunikat przeglądarki
+**"The string did not match the expected pattern."** w miejscu, gdzie
+appka pokazuje własne (zawsze polskie) błędy — plus, osobno: "odległość
+od drogi gminnej nie działa, tu też potrzeba testów". Diagnoza (bez
+możliwości odtworzenia na żywo — sandbox nie ma dostępu do gov.pl ani do
+prawdziwego iOS Safari) dała DWIE kolejne, niezależne poprawki:
+
+1. **`TIMEOUT_OVERPASS` (14s) był KRÓTSZY niż `[timeout:25]`** — dyrektywa
+   wpisana we WSZYSTKIE 3 zapytania Overpass w `services/nearby_features.py`
+   (droga gminna + cieki wodne). To znaczy: appka sama mówiła serwerowi
+   "masz 25 sekund", ale własny klient httpx poddawał się już po 14 —
+   REZYGNOWAŁ, ZANIM Overpass zdążyłby dokończyć, gdy był choć trochę
+   obciążony. Dokładnie pasuje do "czasem działa, czasem nie" — nie awaria
+   usługi, tylko wewnętrzna niespójność dwóch liczb w naszym własnym
+   kodzie. **Naprawa**: `TIMEOUT_OVERPASS` podniesiony do 30s (z marginesem
+   nad 25). Nowy test regresyjny parsuje FAKTYCZNE zapytania z pliku (nie
+   twardo wpisaną liczbę) i pilnuje, że `TIMEOUT_OVERPASS` zawsze
+   przewyższa najdłuższą dyrektywę `[timeout:N]` — potwierdzone, że test
+   faktycznie łapie ten dokładny błąd (ręcznie cofnięty do 14s, test
+   czerwony z jasnym komunikatem, przywrócony).
+2. **`new URL(event.request.url)` w `service-worker.js` mogło rzucić i
+   crashować cały handler `fetch`** — to jest DOKŁADNIE komunikat, jaki
+   WebKit (Safari/iOS) rzuca dla `URL()`/`fetch()` na nieparsowalnym
+   ciągu; w tej appce nie ma ŻADNEGO innego `new URL()` w kodzie
+   frontendowym, więc to najbardziej prawdopodobne źródło. **Naprawa**:
+   `try/catch` wokół konstrukcji `URL` — przy błędzie service worker po
+   prostu NIE przechwytuje tego jednego żądania (`return`), zamiast
+   crashować, i przepuszcza je do przeglądarki tak, jakby service workera
+   tam nie było.
+3. **Dodatkowo, niezależnie od powyższego**: appka mogła pokazać
+   UŻYTKOWNIKOWI surowy, nieprzetłumaczony komunikat silnika przeglądarki
+   (dowolny `TypeError`/`SyntaxError`, nie tylko z `URL()`) wprost w
+   `errorBox`, bo `catch (err) { showError(err.message || "...") }` ufało
+   `err.message` bezwarunkowo. **Naprawa**: nowy `friendlyErrorMessage(err)`
+   w `app.js` — pokazuje `err.message` WPROST tylko dla błędów, które
+   appka sama rzuciła (`err.constructor === Error`, zawsze polski,
+   sensowny tekst), a dla KAŻDEGO innego typu błędu (natywny
+   `TypeError`/`SyntaxError` z przeglądarki) pokazuje generyczny polski
+   komunikat + loguje pełny błąd do konsoli. Zweryfikowane funkcjonalnie
+   w Playwright dwoma scenariuszami: (a) zasymulowany natywny błąd
+   (uszkodzony JSON w odpowiedzi `/api/resolve` → prawdziwy `SyntaxError`
+   z `resp.json()`) → pokazuje generyczny komunikat, NIE surowy tekst
+   silnika; (b) normalny błąd z backendu (404 z `detail`) → pokazuje
+   dokładnie własny, oryginalny tekst appki bez zmian.
+
+1 nowy test pytest (104 łącznie, było 103) + 2 nowe scenariusze
+zweryfikowane w Playwright (nie dodane na stałe do repo — ad-hoc w
+scratchpadzie, ten sam wzorzec co poprzednie wizualne/funkcjonalne
+weryfikacje w tej sesji).
+
+**Ważna lekcja z całej tej rundy** (3 kolejne zgłoszenia od Klaudii z
+żywej appki): sandbox, w którym pracuję, nie ma dostępu do ŻADNEJ z
+usług rządowych/OSM ani do prawdziwej przeglądarki mobilnej — więc
+regresje takie jak niespójny timeout czy specyficzny dla WebKit błąd
+`URL()` da się znaleźć TYLKO przez czytanie kodu i wnioskowanie, nigdy
+przez odtworzenie na żywo tutaj. Kiedy Klaudia zgłasza coś z żywej appki,
+to jedyny sposób na sprawdzenie danej klasy błędów — warto to robić
+systematycznie (przeczytać CAŁĄ ścieżkę kodu, nie tylko fragment, który
+akurat wygenerował błąd), zamiast zakładać z góry "to na pewno przez
+ostatnią zmianę UI".
+
+Cache-bust: `app.js?v=29`, service worker `v21`.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
