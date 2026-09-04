@@ -645,9 +645,10 @@
     map.fitBounds(parcelLayer.getBounds(), { padding: [24, 24], maxZoom: 19 });
   }
 
-  function cardHTML({ title, text, tone }) {
+  function cardHTML({ title, text, tone, id }) {
     const cls = tone ? ` ${tone}` : " muted";
-    return `<div class="card${cls}"><h3>${title}</h3><p>${escapeHTML(text)}</p></div>`;
+    const idAttr = id ? ` id="${id}"` : "";
+    return `<div class="card${cls}"${idAttr}><h3>${title}</h3><p>${escapeHTML(text)}</p></div>`;
   }
 
   function escapeHTML(str) {
@@ -724,7 +725,18 @@
         )
         .join("")}</div>`;
 
+      // Wiersze to zwarty indeks/spis treści, nie druga kopia treści kart
+      // niżej — dodane 2026-09-04 na prośbę Klaudii ("różne rzeczy się
+      // powtarzają, bardziej podobają mi się sekcje poniżej"). Wcześniej
+      // każdy wiersz powtarzał to samo zdanie, które i tak jest w karcie
+      // szczegółów tej sekcji — usunięte, wiersz to tylko etykieta + pill,
+      // klikalny link przewijający do właściwej karty niżej.
       const pillLabel = { risk: "RYZYKO", warning: "UWAGA", ok: "OK" };
+      const rowAnchor = {
+        landslide: "card-landslide", flood_zone: "card-flood_zone", waterlogging: "card-flood_zone",
+        protected_areas: "card-protected_areas", mining_areas: "card-protected_areas", zoning: "card-zoning",
+        nearest_road: "card-nearest_road", utilities: "card-utilities", air_quality: "card-air_quality",
+      };
       const sortedRows = [...v.rows].sort((a, b) => {
         const order = { risk: 0, warning: 1, ok: 2 };
         return order[a.tier] - order[b.tier];
@@ -732,13 +744,14 @@
       html += `<div class="check-rows">${sortedRows
         .map(
           (r) => `
-        <div class="check-row tier-${escapeHTML(r.tier)}">
-          <div class="check-row-head">
-            <span class="check-label">${escapeHTML(r.label)}</span>
-            <span class="check-pill">${pillLabel[r.tier] || ""}</span>
+        <a class="check-row-link" href="#${rowAnchor[r.key] || ""}">
+          <div class="check-row tier-${escapeHTML(r.tier)}">
+            <div class="check-row-head">
+              <span class="check-label">${escapeHTML(r.label)}</span>
+              <span class="check-pill">${pillLabel[r.tier] || ""}</span>
+            </div>
           </div>
-          <p class="check-text">${escapeHTML(r.text)}</p>
-        </div>`
+        </a>`
         )
         .join("")}</div>`;
     }
@@ -836,12 +849,12 @@
             )}</p>`
           : "";
       cardLandslide = ls.has_landslide
-        ? `<div class="card danger"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}${dataAgeNote(
+        ? `<div class="card danger" id="card-landslide"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}${dataAgeNote(
             ls
           )}</div>`
-        : `<div class="card ok"><h3>Zagrożenie osuwiskowe</h3><p>BRAK ZAGROŻEŃ OSUWISKOWYCH</p>${dataAgeNote(ls)}</div>`;
+        : `<div class="card ok" id="card-landslide"><h3>Zagrożenie osuwiskowe</h3><p>BRAK ZAGROŻEŃ OSUWISKOWYCH</p>${dataAgeNote(ls)}</div>`;
     } else {
-      cardLandslide = cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
+      cardLandslide = cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message, id: "card-landslide" });
     }
 
     // Media / uzbrojenie terenu (GESUT) — chip grid
@@ -861,7 +874,7 @@
       utInner = `<p>${escapeHTML(ut.message)}</p>`;
     }
     utInner += dataAgeNote(ut);
-    const cardUtilities = `<div class="card muted"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
+    const cardUtilities = `<div class="card muted" id="card-utilities"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
 
     // Hydrologia i zagrożenie powodziowe
     const hy = data.hydrology;
@@ -897,7 +910,7 @@
       hyInner += `<p class="disclaimer">Brak cieków wodnych w promieniu 400 m.</p>`;
     }
     hyInner += dataAgeNote(ww);
-    const cardHydrology = `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
+    const cardHydrology = `<div class="card muted" id="card-flood_zone"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
     // Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
     const pa = data.protected_areas;
@@ -930,21 +943,21 @@
       natInner += `<p class="disclaimer" style="margin-top:8px;">${escapeHTML(ma.message)}</p>`;
     }
     natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
-    const cardNature = `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
+    const cardNature = `<div class="card muted" id="card-protected_areas"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
 
     // Jakość powietrza (GIOŚ) — dodane 2026-09-04
     const aq = data.air_quality;
     let cardAirQuality;
     if (aq.status === "ok") {
       const distTxt = aq.distance_m >= 1000 ? `${(aq.distance_m / 1000).toFixed(1)} km` : `${aq.distance_m} m`;
-      cardAirQuality = `<div class="card muted"><h3>Jakość powietrza</h3>
+      cardAirQuality = `<div class="card muted" id="card-air_quality"><h3>Jakość powietrza</h3>
         <p>Najbliższa stacja GIOŚ: <strong>${escapeHTML(aq.station_name)}</strong> (${distTxt})</p>
         <p>${escapeHTML(aq.pollutant)}: <strong>${aq.value} ${escapeHTML(aq.unit)}</strong>
         ${aq.measured_at ? ` — pomiar z ${escapeHTML(aq.measured_at)}` : ""}</p>
         <p class="disclaimer">Surowy odczyt bez oceny ryzyka zdrowotnego (brak progów WHO/UE w tej wersji).</p>
         <p class="disclaimer" style="opacity:.7;">${escapeHTML(aq.attribution)}</p></div>`;
     } else {
-      cardAirQuality = cardHTML({ title: "Jakość powietrza (GIOŚ)", text: aq.message });
+      cardAirQuality = cardHTML({ title: "Jakość powietrza (GIOŚ)", text: aq.message, id: "card-air_quality" });
     }
 
     // Odległość do najbliższej drogi gminnej
@@ -966,7 +979,7 @@
     } else {
       nrInner = `<p>${escapeHTML(nr.message)}</p>`;
     }
-    const cardRoad = `<div class="card muted"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
+    const cardRoad = `<div class="card muted" id="card-nearest_road"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
 
     // Plany zagospodarowania (MPZP), tabular
     const zon = data.zoning;
@@ -995,7 +1008,7 @@
     } else {
       zonInner = `<p>${escapeHTML(zon.message)}</p>`;
     }
-    const cardZoning = `<div class="card muted"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
+    const cardZoning = `<div class="card muted" id="card-zoning"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
 
     // Pozwolenia na budowę (GUNB/RWDZ)
     const cardPermits = `

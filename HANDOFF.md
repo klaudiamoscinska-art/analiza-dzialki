@@ -951,6 +951,70 @@ ostrożnie dostrojonej logiki geokodowania, nie prosta poprawka błędu;
 wymaga osobnej, uważniejszej rundy, nie warto łączyć z poprawkami błędów
 powyżej.
 
+### Zbadane: status planu ogólnego jako osobny sygnał — ODŁOŻONE do 30.09/30.11.2026
+
+Po poprawce notatki testowej (Zawoja: MPZP jest, plan ogólny to osobny,
+nieuchwalony akt) Klaudia zapytała, czy MPZP i plan ogólny nie powinny
+być ocieniane osobno, zamiast dzisiejszego jednego `zoning.py::get_zoning()`
+zwracającego wspólne `found: tak/nie` z KIAPP (Rejestr Urbanistyczny) LUB
+KIMPZP (stare MPZP), którykolwiek coś znajdzie pierwszy. Zbadane
+(WebSearch — `WebFetch` jest w tym środowisku całkowicie zablokowany, na
+KAŻDĄ domenę, nie tylko gov.pl — sprawdzone nawet na Wikipedii):
+
+- **Status aktu to realny, udokumentowany atrybut** obiektu
+  `app:AktPlanowaniaPrzestrzennego` (schemat `planowaniePrzestrzenne.xsd`),
+  z cyklem `projekt → w uzgodnieniu → uchwalony → obowiązujący`,
+  publikowany przez ten sam agregator, którego już używamy
+  (`KrajowaIntegracjaAktowPlanowaniaPrzestrzennego`, WMS/WFS/CSW).
+- **Ale**: oficjalny harmonogram wdrożenia Rejestru Urbanistycznego wprost
+  mówi, że **do 30 września 2026 projekty aktów planowania przestrzennego
+  (w tym plany ogólne w trakcie procedury) nadal są publikowane wyłącznie
+  w BIP każdej gminy z osobna**, nie w krajowym rejestrze. Czyli dopóki
+  status to „projekt" (dokładnie przypadek Zawoi), nasz istniejący
+  KIAPP prawdopodobnie nic nie zwróci — nie z powodu błędu, tylko dlatego,
+  że te dane świadomie zostały tam zostawione na czas przejściowy. Nawet
+  Działkopedia w swoim PDF-ie pisze „nie udało się potwierdzić" — czyli
+  oni też nie mają tego ze strukturalnego źródła.
+- Scraping ~2477 osobnych stron BIP gmin (bez wspólnego formatu) to
+  dokładnie ten rodzaj rozwiązania, którego świadomie unikamy w tym
+  projekcie — niestabilne, drogie w utrzymaniu, żadnej gwarancji formatu.
+
+**Decyzja (Klaudia, 2026-09-04)**: zostawić na razie, nie implementować.
+**Wrócić do tematu po 30.09.2026** (koniec okresu przejściowego BIP) albo
+**po 30.11.2026** (deklarowana pełna kompletność rejestru) — wtedy ten sam
+endpoint KIAPP, którego już używamy, może zacząć zwracać status
+strukturalnie, bez żadnej nowej integracji z naszej strony. Do tego czasu
+`zoning.py` zostaje bez zmian (jeden łączny `found`, KIAPP/KIMPZP
+równoważne źródła tego samego pytania „czy jest jakiś plan").
+
+### Wynik: zwarta lista jako spis treści, nie druga kopia treści — dodane 2026-09-04
+
+Klaudia zauważyła, że lista statusów pod oceną (dodana w poprzedniej
+rundzie, wzorowana na Działkopedii) i karty szczegółów niżej w dużej
+mierze powtarzają to samo zdanie dwa razy — i że bardziej podobają jej
+się karty szczegółów. Pokazany był podgląd (Playwright) przed wdrożeniem,
+zaakceptowany bez zmian.
+
+**Zmiana**: `.check-rows` (lista pod `.checklist-counts`) już NIE pokazuje
+zdania (`r.text` — usunięte razem z CSS `.check-text`) — zostaje tylko
+etykieta + kolorowy pill, czyli zwarty, skanowalny **spis treści**, nie
+streszczenie. Każdy wiersz to teraz `<a href="#card-{key}">` — klik
+przewija (`scroll-behavior:smooth` na `#panel`) do właściwej karty
+szczegółów niżej. Mapowanie klucz→kotwica (`rowAnchor` w `app.js`)
+uwzględnia, że kilka kluczy werdyktu dzieli jedną kartę (`flood_zone` +
+`waterlogging` → karta Hydrologia; `protected_areas` + `mining_areas` →
+karta Obszary chronione), więc dodane id (`id="card-{key}"`) tylko na
+KIEROWCZYCH kluczach tych kart, nie duplikowane. `cardHTML()` (helper dla
+kart "tylko-błąd") dostał nowy opcjonalny parametr `id`.
+
+**Zweryfikowane funkcjonalnie, nie tylko wizualnie**: osobny skrypt
+Playwright klika w wiersz "Powietrze" i sprawdza realny `boundingBox()`
+karty `#card-air_quality` względem `#panel` po scrollu — potwierdzone, że
+karta faktycznie ląduje w widocznym obszarze, nie tylko że link istnieje
+w HTML-u. Zero błędów JS.
+
+Cache-bust: `app.js?v=27`, service worker `v19`.
+
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
 To jest najbardziej złożona część appki. Pełny pipeline:
