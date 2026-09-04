@@ -44,6 +44,29 @@ async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: floa
     m_per_px = (half_extent_m * 2) / size_px
     center_px = (size_px - 1) / 2
 
+    def _scan_pixels(content: bytes) -> tuple[int, Optional[float]]:
+        """Pure CPU-bound image decode + per-pixel scan (up to
+        240x240=57600 pixels PER layer, 6 layers = up to ~345600 total for
+        one check_utilities() call) — factored out (2026-09-04) so it can
+        run via asyncio.to_thread instead of blocking the event loop. This
+        is the heaviest per-pixel workload in the app; confirmed live that
+        this app's single-threaded Render process, under 12 concurrent
+        /api/analyze branches, can starve OTHER unrelated network calls
+        (even to a different host) long enough to make them time out — see
+        config.py's MAX_CONCURRENT_SECTIONS comment and HANDOFF.md."""
+        img = Image.open(io.BytesIO(content)).convert("RGBA")
+        non_transparent = 0
+        nearest_px: Optional[float] = None
+        for idx, rgba in enumerate(img.getdata()):
+            if rgba[3] <= 40:
+                continue
+            non_transparent += 1
+            y, x = divmod(idx, size_px)
+            dist_px = ((x - center_px) ** 2 + (y - center_px) ** 2) ** 0.5
+            if nearest_px is None or dist_px < nearest_px:
+                nearest_px = dist_px
+        return non_transparent, nearest_px
+
     async def one(label_key: str, label: str, layer: str) -> dict[str, Any]:
         bbox = (
             f"{x_2180 - half_extent_m},{y_2180 - half_extent_m},"
@@ -58,17 +81,7 @@ async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: floa
         try:
             resp = await client.get(KIUT_URL, params=params, follow_redirects=True)
             resp.raise_for_status()
-            img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-            non_transparent = 0
-            nearest_px: Optional[float] = None
-            for idx, rgba in enumerate(img.getdata()):
-                if rgba[3] <= 40:
-                    continue
-                non_transparent += 1
-                y, x = divmod(idx, size_px)
-                dist_px = ((x - center_px) ** 2 + (y - center_px) ** 2) ** 0.5
-                if nearest_px is None or dist_px < nearest_px:
-                    nearest_px = dist_px
+            non_transparent, nearest_px = await asyncio.to_thread(_scan_pixels, resp.content)
             present = non_transparent > threshold_px
             result = {"key": label_key, "label": label, "present": present}
             if present and nearest_px is not None:

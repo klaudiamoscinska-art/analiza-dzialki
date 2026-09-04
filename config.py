@@ -203,6 +203,25 @@ TIMEOUT_RESOLVE_BUDGET = 50.0
 
 HTTP_TIMEOUT = TIMEOUT_DEFAULT
 
+# Added 2026-09-04 — confirmed live on Render's free plan (WEB_CONCURRENCY=1,
+# one thread) that firing all 12 /api/analyze branches at once for a
+# data-heavy parcel ("Korbielów 3917/5") causes UNRELATED external services
+# (GUGiK's MPZP host AND OpenStreetMap Overpass, in the same analysis run)
+# to both fail with a timeout landing almost exactly on their OWN configured
+# limit — not a sign either government service is down (a lighter parcel,
+# "Zawoja", succeeded on the same code, same host, same run), but a sign
+# THIS process couldn't service that many concurrent connections/CPU-bound
+# work in time. A first attempt at fixing this by forcing IPv4 for the MPZP
+# host specifically (see HANDOFF.md, "MPZP ConnectTimeout...") was reverted
+# after live verification showed it didn't help — it was solving the wrong
+# problem. MAX_CONCURRENT_SECTIONS caps how many of the 12 branches actually
+# run their network fetch at once (see main.py::_section_specs) — the rest
+# wait their turn instead of piling onto an already-saturated event loop.
+# Chosen as a middle value from HANDOFF's own proposed range (4-6) — not
+# independently tuned against live Render metrics (unavailable from this
+# sandbox), so treat as a starting point, not a proven-optimal number.
+MAX_CONCURRENT_SECTIONS = 5
+
 # --------------------------------------------------------------------------
 # services/cache.py — per-parcel cache-aside TTLs (seconds), added 2026-09-04
 # after a performance investigation (see the "Plan Pamięci Podręcznej"

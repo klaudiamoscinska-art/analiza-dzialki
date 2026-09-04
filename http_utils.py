@@ -41,7 +41,13 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
     async def _try(url: str) -> dict[str, Any]:
         resp = await client.post(url, data={"data": query}, headers=OVERPASS_HEADERS, timeout=TIMEOUT_OVERPASS)
         resp.raise_for_status()
-        return resp.json()
+        # resp.json() is synchronous stdlib json.loads — offloaded to a
+        # worker thread (added 2026-09-04) since a data-heavy gmina's
+        # Overpass response can be large enough to parse for real CPU time,
+        # which would otherwise block the event loop (and, confirmed live,
+        # everything else this app is concurrently waiting on) for that
+        # long. See config.py's MAX_CONCURRENT_SECTIONS comment.
+        return await asyncio.to_thread(resp.json)
 
     pending = {asyncio.create_task(_try(url)) for url in OVERPASS_URLS}
     last_exc: Optional[Exception] = None

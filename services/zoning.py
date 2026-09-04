@@ -44,6 +44,20 @@ def _mentions_any(text: str, keywords: tuple[str, ...]) -> bool:
     return any(kw in low for kw in keywords)
 
 
+def _has_nontransparent_pixel(content: bytes) -> bool:
+    """Pure CPU-bound image decode + per-pixel scan (up to 150x150=22500
+    pixels), factored out of _mpzp_has_plan_drawn (added 2026-09-04) so it
+    can run via asyncio.to_thread instead of blocking the event loop —
+    confirmed live that this app's single-threaded Render process, under
+    12 concurrent /api/analyze branches, can starve OTHER unrelated network
+    calls (even to a completely different host, Overpass) long enough to
+    make them time out. Moving synchronous CPU work like this off the loop
+    is one of the two concrete fixes from that investigation (see
+    config.py's MAX_CONCURRENT_SECTIONS comment and HANDOFF.md)."""
+    img = Image.open(io.BytesIO(content)).convert("RGBA")
+    return any(px[3] > 10 for px in img.getdata())
+
+
 async def _mpzp_has_plan_drawn(
     client: httpx.AsyncClient, url: str, layer: str, x_2180: float, y_2180: float, half_extent_m: float = 15.0
 ) -> bool:
@@ -68,8 +82,7 @@ async def _mpzp_has_plan_drawn(
         "WIDTH": "150", "HEIGHT": "150", "FORMAT": "image/png", "TRANSPARENT": "true",
     }
     resp = await _get_with_retry(client, url, params=params, timeout=TIMEOUT_MPZP_PROBE, follow_redirects=True)
-    img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-    return any(px[3] > 10 for px in img.getdata())
+    return await asyncio.to_thread(_has_nontransparent_pixel, resp.content)
 
 
 async def _try_zoning_source(
