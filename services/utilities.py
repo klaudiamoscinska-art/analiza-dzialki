@@ -4,7 +4,7 @@ GetFeatureInfo attribute endpoint is structurally non-functional — see
 docstring below)."""
 import asyncio
 import io
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from PIL import Image
@@ -27,10 +27,22 @@ async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: floa
     real nearby line (350-950 px in testing) from rendering noise/labels
     (2-8 px when nothing is there). This trades exact attribute text for a
     reliable presence signal, which is what the UI actually needs.
+
+    Distance-to-nearest-line (added 2026-09-04, requested by Klaudia after
+    comparing against Działkopedia's "71m dobry dojazd"-style output): since
+    the tile's bbox size and pixel dimensions are both known, each pixel
+    maps to a fixed real-world size (half_extent_m*2 / size_px). Finding the
+    non-transparent pixel closest to the tile's center (the parcel) and
+    converting that pixel offset to meters gives an approximate distance —
+    not a survey-grade measurement (it's still an image-detection
+    heuristic, not vector geometry), but the same kind of "how far" answer
+    the nearest-road/waterway checks already give from real geometry.
     """
     half_extent_m = 60.0
     size_px = 240
     threshold_px = 60
+    m_per_px = (half_extent_m * 2) / size_px
+    center_px = (size_px - 1) / 2
 
     async def one(label_key: str, label: str, layer: str) -> dict[str, Any]:
         bbox = (
@@ -47,8 +59,21 @@ async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: floa
             resp = await client.get(KIUT_URL, params=params, follow_redirects=True)
             resp.raise_for_status()
             img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-            non_transparent = sum(1 for px in img.getdata() if px[3] > 40)
-            return {"key": label_key, "label": label, "present": non_transparent > threshold_px}
+            non_transparent = 0
+            nearest_px: Optional[float] = None
+            for idx, rgba in enumerate(img.getdata()):
+                if rgba[3] <= 40:
+                    continue
+                non_transparent += 1
+                y, x = divmod(idx, size_px)
+                dist_px = ((x - center_px) ** 2 + (y - center_px) ** 2) ** 0.5
+                if nearest_px is None or dist_px < nearest_px:
+                    nearest_px = dist_px
+            present = non_transparent > threshold_px
+            result = {"key": label_key, "label": label, "present": present}
+            if present and nearest_px is not None:
+                result["distance_m"] = round(nearest_px * m_per_px)
+            return result
         except Exception:
             return {"key": label_key, "label": label, "present": False, "error": True}
 

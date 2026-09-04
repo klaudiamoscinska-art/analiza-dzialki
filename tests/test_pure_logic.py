@@ -9,9 +9,11 @@ builders, and the WFS registry lookup rules.
 
 Run with: pytest (after `pip install -r requirements-dev.txt`).
 """
+import asyncio
 import io
 import pathlib
 import re
+import time
 
 import httpx
 import pytest
@@ -1256,6 +1258,39 @@ async def test_check_utilities_partial_failure_stays_ok_with_error_flag_per_laye
     assert by_key["gaz"]["present"] is False
 
 
+@pytest.mark.asyncio
+async def test_check_utilities_present_includes_distance_m():
+    """Added 2026-09-04, requested by Klaudia after comparing against
+    Działkopedia's "71m dobry dojazd"-style output — a present utility
+    chip should also say how far, not just yes/no. The tile is 240x240 px
+    over a 120m bbox (0.5 m/px); a cluster of pixels starting 40px right
+    of the tile center should report ~20m."""
+    size_px = 240
+    center = (size_px - 1) / 2
+    offset_px = 40
+
+    def cluster_image():
+        img = Image.new("RGBA", (size_px, size_px), (0, 0, 0, 0))
+        y = round(center)
+        for i in range(100):  # well above threshold_px=60
+            x = min(round(center) + offset_px + i, size_px - 1)
+            img.putpixel((x, y), (0, 0, 0, 255))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    class _ClusterClient:
+        async def get(self, url, params=None, follow_redirects=None):
+            if params["LAYERS"] == "przewod_wodociagowy":
+                return _FakePngResponse(cluster_image())
+            return _FakePngResponse(_png_response(0))
+
+    result = await utilities.check_utilities(_ClusterClient(), 500000.0, 300000.0)
+    woda = {u["key"]: u for u in result["utilities"]}["woda"]
+    assert woda["present"] is True
+    assert woda["distance_m"] == pytest.approx(20, abs=1)
+
+
 # ---------------------------------------------------------------------------
 # services.air_quality — GIOŚ nearest-station PM2.5/PM10 lookup, added
 # 2026-09-04. get_air_quality makes three distinct kinds of calls (station
@@ -1547,3 +1582,83 @@ def test_timeout_overpass_exceeds_every_in_query_overpass_timeout():
         f"[timeout:N] w zapytaniach Overpass (max znaleziony: {max(in_query_timeouts)}s), "
         "inaczej klient zrezygnuje, zanim serwer sam by skończył."
     )
+
+
+# ---------------------------------------------------------------------------
+# http_utils._overpass_query — races every configured mirror concurrently
+# instead of trying them one after another. Fixed 2026-09-04: the sequential
+# version meant a slow, rate-limited, or silently-blocked mirror (a real
+# risk for shared hosting IPs like Render's against free public Overpass
+# instances) had to fully exhaust its own timeout before the next mirror was
+# even attempted — reported live by Klaudia as the nearest-road check still
+# failing even after the [timeout:25] vs. client-timeout mismatch was fixed.
+# ---------------------------------------------------------------------------
+
+class _FakeJsonPostResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+class _FakeOverpassClient:
+    """responses: dict[url] -> {"json": ...} or {"exc": Exception(...)},
+    each optionally with "delay" (seconds) to control which mirror
+    "answers" first."""
+
+    def __init__(self, responses):
+        self._responses = responses
+        self.calls = []
+
+    async def post(self, url, data=None, headers=None, timeout=None):
+        self.calls.append(url)
+        spec = self._responses[url]
+        await asyncio.sleep(spec.get("delay", 0))
+        if "exc" in spec:
+            raise spec["exc"]
+        return _FakeJsonPostResponse(spec["json"])
+
+
+@pytest.mark.asyncio
+async def test_overpass_query_returns_first_successful_mirror(monkeypatch):
+    monkeypatch.setattr(http_utils, "OVERPASS_URLS", ["http://a", "http://b"])
+    client = _FakeOverpassClient({
+        "http://a": {"exc": RuntimeError("zablokowany")},
+        "http://b": {"json": {"elements": ["real result"]}},
+    })
+
+    result = await http_utils._overpass_query(client, "fake query")
+
+    assert result == {"elements": ["real result"]}
+
+
+@pytest.mark.asyncio
+async def test_overpass_query_all_mirrors_failing_raises():
+    client = _FakeOverpassClient({
+        u: {"exc": RuntimeError(f"{u} niedostępny")} for u in http_utils.OVERPASS_URLS
+    })
+
+    with pytest.raises(RuntimeError):
+        await http_utils._overpass_query(client, "fake query")
+
+
+@pytest.mark.asyncio
+async def test_overpass_query_does_not_wait_for_a_slower_blocked_mirror(monkeypatch):
+    """The whole point of racing instead of retrying sequentially: a mirror
+    that never answers must not delay a healthy one that answers quickly."""
+    monkeypatch.setattr(http_utils, "OVERPASS_URLS", ["http://slow", "http://fast"])
+    client = _FakeOverpassClient({
+        "http://slow": {"json": {"elements": ["late"]}, "delay": 0.3},
+        "http://fast": {"json": {"elements": ["quick"]}, "delay": 0.02},
+    })
+
+    start = time.monotonic()
+    result = await http_utils._overpass_query(client, "fake query")
+    elapsed = time.monotonic() - start
+
+    assert result == {"elements": ["quick"]}
+    assert elapsed < 0.2  # well under the slow mirror's 0.3s delay

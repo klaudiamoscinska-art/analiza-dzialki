@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 104 testy dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 108 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -1132,6 +1132,86 @@ akurat wygenerował błąd), zamiast zakładać z góry "to na pewno przez
 ostatnią zmianę UI".
 
 Cache-bust: `app.js?v=29`, service worker `v21`.
+
+### Dystans mediów, wyścig zamiast kolejki dla Overpass, i realne dowody na MPZP z e-mapa.net — dodane 2026-09-04
+
+Klaudia dalej testowała działkę testową Zawoja i przysłała: (1) drogę
+gminną WCIĄŻ niedziałającą mimo poprzedniej poprawki timeoutu, (2) prośbę
+o pokazywanie odległości w metrach dla obecnych mediów (jak Działkopedia:
+"71m dobry dojazd"), (3) trzy zrzuty ekranu z **własnych DevTools na
+polska.e-mapa.net**, pokazujące realne zapytanie/odpowiedź WMS dla MPZP
+tej działki — z konkretnym, ustrukturyzowanym wynikiem: **Status: prawnie
+wiążący lub realizowany** (uchwała X/84/2019, weszła w życie 2019-07-31).
+
+**1. Dystans mediów w metrach — dodane.** `services/utilities.py::check_utilities()`
+liczyła dotąd tylko liczbę nieprzezroczystych pikseli w kaflu WMS (obecność
+tak/nie). Ponieważ rozmiar kafla w metrach i w pikselach są znane
+(120 m / 240 px = 0.5 m/px), teraz znajdowana jest też odległość
+NAJBLIŻSZEGO nieprzezroczystego piksela od środka kafla (czyli od
+działki) i przeliczana na metry — przybliżenie z detekcji obrazu, nie
+geometria wektorowa, ale ten sam rodzaj odpowiedzi co Działkopedia.
+Nowe pole `distance_m` w każdym elemencie `utilities.utilities`, pokazywane
+pod etykietą w kafelku (`.chip-dist`, tylko dla `present: true`). 1 nowy
+test (kalibrowany klaster pikseli w znanej odległości od środka,
+sprawdza że przeliczenie na metry jest poprawne).
+
+**2. `TIMEOUT_MPZP_DETAIL` (12s) podniesiony do 20s.** Zrzuty ekranu
+Klaudii potwierdziły z zewnętrznego źródła (patrz punkt 3), że plan
+miejscowy Zawoi jest w pełni "prawnie wiążący" — nie ma powodu, żeby nasz
+`zoning.py` pokazywał to jako niepewny "partial" (żółty), skoro dane
+istnieją. Najbardziej prawdopodobne wyjaśnienie: 12s to WYRAŹNY wyjątek
+na tle reszty timeoutów w tym pliku (wszystkie inne "pobranie
+szczegółów z niepewnego serwera rządowego" to 20-45s) — podniesiony do
+20s, świadomie NIE do 45s jak WFS powiatowe, bo (w przeciwieństwie do
+Overpass, gdzie niespójność była pewna) HANDOFF.md już wcześniej
+udokumentował, że GetFeatureInfo KIMPZP dla NIEKTÓRYCH gmin wisi
+NIESKOŃCZENIE — więc nieograniczony timeout tu nie byłby dobrym
+rozwiązaniem. **To najlepiej uzasadniona hipoteza, NIE gwarantowana
+naprawa** (nie da się zweryfikować bez żywego dostępu z tego środowiska).
+
+**3. `http_utils._overpass_query` — wyścig zamiast kolejki.** Mimo
+poprawki niespójności timeoutu (poprzednia runda), Klaudia zgłosiła że
+droga gminna WCIĄŻ nie działa. Zdiagnozowany kolejny, niezależny problem
+architektoniczny: dwa lustra Overpass były próbowane PO KOLEI — jeśli
+pierwsze jest zablokowane/przeciążone (realne ryzyko dla współdzielonych
+adresów IP hostingu typu Render wobec darmowych publicznych instancji
+Overpass), MUSI najpierw wyczerpać swój PEŁNY timeout, zanim drugie w
+ogóle zostanie spróbowane — więc dodanie kolejnych luster tylko
+pogarszałoby najgorszy przypadek czasu odpowiedzi. **Naprawa**: oba
+lustra odpytywane RÓWNOCZEŚNIE (`asyncio.wait(..., FIRST_COMPLETED)`),
+pierwsze, które faktycznie odpowie, wygrywa, reszta anulowana — to
+poprawia jednocześnie odporność (zablokowane lustro już nie opóźnia
+zdrowego) I najgorszy czas odpowiedzi (jeden timeout, nie N timeoutów).
+3 nowe testy, w tym jeden mierzący realny czas wykonania (`time.monotonic`),
+potwierdzający, że wolne/zablokowane lustro faktycznie nie blokuje
+zwrócenia wyniku ze zdrowego. **Nadal nie mam pewności, że to naprawia
+cały problem** — jeśli oba lustra są faktycznie zablokowane dla ruchu z
+Render (nie tylko wolne), żadna zmiana architektury zapytań tego nie
+naprawi; to już wymaga sprawdzenia z żywego wdrożenia, nie z tego
+środowiska (gov.pl i inne domeny rządowe/OSM są tu całkowicie
+zablokowane).
+
+**4. WAŻNE ODKRYCIE od Klaudii, jeszcze NIE zaimplementowane**: zrzuty
+ekranu z DevTools na `polska.e-mapa.net` pokazują, że ta strona (dla
+działek w gminach obsługiwanych przez firmę Geo-System) odpytuje
+BEZPOŚREDNIO serwer WMS dostawcy gminy —
+`https://wms16.epodgik.pl/cgi-bin/int_mpzp?...&LAYERS=app.RysunkiAktuPlanowania.MPZP`
+— zamiast krajowego agregatora GUGiK (KIMPZP/KIAPP), którego używa nasz
+`zoning.py`. Odpowiedź ma ustrukturyzowane pola (TERYT, Nazwa planu,
+Uchwała, Data wejścia w życie, **Status**, Aktualność danych) — dokładnie
+to, czego szukaliśmy dla statusu planu ogólnego/MPZP, i to z realnym,
+działającym, szybkim (~90ms w Network tab) źródłem, nie z niepewnego
+krajowego agregatora. **Świadomie NIE zaimplementowane w tej rundzie**:
+to adres konkretnego DOSTAWCY GIS jednej gminy (Geo-System/ePODGiK), nie
+krajowy standard — uogólnienie na całą Polskę wymagałoby rejestru
+gmina→dostawca→URL, podobnego do istniejącego `WFS_POWIAT_REGISTRY` w
+`wfs_search.py` (budowanego gmina po gminie / dostawca po dostawcy przez
+wiele rund pracy), nie prostej podmiany jednego URL-a. Warto rozważyć
+jako osobny, świadomie zaplanowany projekt, jeśli Klaudia zdecyduje że to
+priorytet — nie zgadywać/hardkodować jednego adresu na próbę.
+
+4 nowe testy pytest w tej rundzie (108 łącznie, było 104) — 1 dla dystansu
+mediów, 3 dla wyścigu Overpass. Cache-bust: `app.js?v=30`, service worker `v22`.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

@@ -888,9 +888,17 @@
           // 2026-09-04, zgłoszone przez Klaudię jako "media przestały
           // działać" na działce testowej.
           const cls = u.error ? " unknown" : u.present ? " present" : "";
+          // Odległość (przybliżona — z detekcji na obrazie, nie z
+          // geometrii wektorowej, patrz docstring check_utilities) dla
+          // obecnych mediów — dodane 2026-09-04 na prośbę Klaudii, żeby
+          // dorównać formatowi Działkopedii ("71m dobry dojazd").
+          const distHTML =
+            u.present && typeof u.distance_m === "number"
+              ? `<span class="chip-dist">${u.distance_m} m</span>`
+              : "";
           return `
         <div class="chip${cls}" title="${u.error ? "Nie udało się sprawdzić tej warstwy — spróbuj ponownie" : ""}">
-          <span>${escapeHTML(u.label)}</span><span class="dot"></span>
+          <span>${escapeHTML(u.label)}${distHTML}</span><span class="dot"></span>
         </div>`;
         })
         .join("")}</div>`;

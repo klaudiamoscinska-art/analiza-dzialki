@@ -169,7 +169,19 @@ TIMEOUT_MIDAS = 30.0  # PIG-PIB MIDAS mining-areas ArcGIS 'identify' — same ho
 TIMEOUT_GDOS = 20.0  # GDOŚ protected-areas WFS GetFeature
 TIMEOUT_GIOS = 30.0  # GIOŚ air-quality API — station list, sensors, readings
 TIMEOUT_MPZP_PROBE = 15.0  # MPZP/APP GetMap visual pre-check
-TIMEOUT_MPZP_DETAIL = 12.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in asyncio.wait_for)
+# Was 12.0 — a clear outlier against every other "detail fetch from a
+# government server" timeout in this file (20-45s) — bumped 2026-09-04
+# after Klaudia reported the Zawoja test parcel's zoning stuck on
+# "partial" (plan widoczny, ale serwer gminy nie zwrócił szczegółów w
+# wyznaczonym czasie) despite the plan genuinely existing and being
+# "prawnie wiążący" (confirmed live by Klaudia via a DIFFERENT WMS vendor
+# endpoint the gmina uses — see HANDOFF.md). Kept short of WFS_POWIAT's
+# 45s on purpose: unlike Overpass's self-inflicted mismatch, KIMPZP's
+# GetFeatureInfo is independently confirmed (HANDOFF.md, section 4) to
+# hang INDEFINITELY for some gminas without their own backend, so an
+# unbounded wait isn't the right fix here — 20s (matching GDOŚ's WFS
+# GetFeature) is a reasoned middle ground, not a guaranteed fix.
+TIMEOUT_MPZP_DETAIL = 20.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in asyncio.wait_for)
 TIMEOUT_OBREB_SCAN = 10.0  # per-obręb brute-force scan (many parallel short requests)
 
 HTTP_TIMEOUT = TIMEOUT_DEFAULT
