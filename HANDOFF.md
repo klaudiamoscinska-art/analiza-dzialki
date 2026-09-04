@@ -1220,6 +1220,11 @@ Cała ta appka była budowana z bardzo wysokim naciskiem na **weryfikację na
    patrz notatka na samej górze pliku. Jeśli podczas pracy odkryjesz nowy
    fakt (usługa działa/nie działa, nowy ślepy zaułek, nowa luka), dopisz go
    od razu, w tym samym commit-cie.
+9. **`TEST_PARCELS.md`** (root repo, dodane 2026-09-04) — lista realnych
+   działek testowych, które Klaudia podaje do zapamiętania (numer TERYT +
+   dlaczego dana działka jest przydatna do testów). Kiedy Klaudia pyta o
+   „działkę testową" — to jest ten plik. Kiedy podaje nową — dopisz ją
+   tam, nie tutaj.
 
 ---
 
