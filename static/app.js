@@ -690,6 +690,35 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
+    // 0 — Werdykt: jeden syntetyczny wynik na górze, łączący sygnały
+    // pokazane osobno niżej. Patrz services/verdict.py.
+    const v = data.verdict;
+    if (v) {
+      const levelLabel = { dobra: "Dobra", do_sprawdzenia: "Do sprawdzenia", wysokie_ryzyko: "Wysokie ryzyko" }[
+        v.level
+      ] || v.level;
+      const flagsHTML = v.flags.length
+        ? `<ul class="verdict-flags">${v.flags
+            .map((f) => `<li class="${escapeHTML(f.severity)}">${escapeHTML(f.text)}</li>`)
+            .join("")}</ul>`
+        : `<p style="margin:6px 0 0;font-size:13.5px;">Nie wykryto żadnego z monitorowanych sygnałów ryzyka.</p>`;
+      const incompleteHTML = v.incomplete_sections.length
+        ? `<p class="verdict-incomplete">Niepełne dane: ${v.incomplete_sections
+            .map(escapeHTML)
+            .join(", ")} — sprawdź te sekcje ręcznie niżej.</p>`
+        : "";
+      html += `
+        <div class="verdict-card ${escapeHTML(v.level)}">
+          <div class="verdict-score">${v.score}</div>
+          <div class="verdict-body">
+            <p class="verdict-label">${escapeHTML(levelLabel)}</p>
+            ${flagsHTML}
+            ${incompleteHTML}
+            <p class="verdict-disclaimer">${escapeHTML(v.disclaimer)}</p>
+          </div>
+        </div>`;
+    }
+
     if (p.emapa_link) {
       html += `<a class="link-out-btn" href="${p.emapa_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska.e-mapa.net →</a>`;
     }

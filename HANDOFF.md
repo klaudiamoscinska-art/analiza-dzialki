@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 59 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 66 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -558,6 +558,38 @@ błąd nigdy nie cache'owany, niezależność kluczy/usług. Razem 59 testów.
 przyspieszenie NIE zostało zmierzone na żywo** (te same ograniczenia
 sieciowe co zawsze w tym środowisku) — logi z punktu 1 to pierwszy krok
 do tego, nie coś, co dało się zweryfikować z tego sandboksa.
+
+### Werdykt — w budowie (2026-09-04, item 6 z „Rozpoznania Działkopedii")
+
+Klaudia poprosiła o realizację pozycji 6, 8, 9 z raportu-artefaktu
+„Rozpoznanie Działkopedii" naraz. Kolejność pracy: 6 (syntetyczny
+werdykt) jest logicznie zależny od 8 (obszary chronione GDOŚ — werdykt
+ma go uwzględniać jako jeden z sygnałów), więc zanim 8 jest gotowe (w
+trakcie researchu przez subagenta — GDOŚ/PIG-PIB endpoints muszą zostać
+zweryfikowane, żeby nie zgadywać kolejnego URL-a bez podstaw, tak jak
+przy KIMPZP/KIAPP/KIUT), zbudowany i przetestowany jest sam szkielet:
+
+- `services/verdict.py::build_verdict()` — czysta, deterministyczna
+  funkcja punktowa (start 100, odejmowanie za każdy sygnał ryzyka,
+  każde odjęcie nazwane w `flags`, nigdy czarna skrzynka). Przyjmuje
+  już `protected_areas` jako parametr (kształt: `{"status": "ok",
+  "areas": [{"name": ...}, ...]}`), gotowy pod item 8, ale JESZCZE NIE
+  podłączony do `main.py` — brakuje samego źródła danych o obszarach
+  chronionych. 8 testów pytest (66 razem), w pełni pokrywających logikę
+  bez zależności od item 8/9.
+- `app.js`/`index.html` — karta werdyktu na samej górze wyniku
+  (`data.verdict`), 3 poziomy (dobra/do_sprawdzenia/wysokie_ryzyko) z
+  kolorami, lista flag, sekcja "niepełne dane" gdy któryś sygnał nie
+  odpowiedział. Kod jest bezpiecznie nieaktywny na produkcji do czasu
+  podłączenia w `main.py` (`if (v)` — pole `data.verdict` po prostu nie
+  istnieje w odpowiedzi API, dopóki main.py go nie zwraca).
+
+**Ten commit to świadomy checkpoint w trakcie pracy, nie gotowa
+funkcja** — main.py nie zwraca jeszcze `verdict` w ogóle, więc nic się
+nie zmienia dla użytkowniczki. Kolejny commit doda GDOŚ (item 8),
+opcjonalnie PIG-PIB geologię (item 9, jeśli research potwierdzi
+istnienie realnego publicznego endpointu) i dopiero wtedy podłączy
+wszystko w `main.py` + wystawi jeden PR dla całości 6+8(+9).
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

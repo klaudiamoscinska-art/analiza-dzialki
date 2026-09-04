@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import cache, geocoding, uldk, valuation, wfs_search, zoning
+from services import cache, geocoding, uldk, valuation, verdict, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -833,3 +833,89 @@ async def test_get_or_fetch_services_are_independent(cache_db):
 
     assert result_x["value"] == "x"
     assert result_y["value"] == "y"
+
+
+# ---------------------------------------------------------------------------
+# services.verdict.build_verdict — synthesized score/verdict (2026-09-04,
+# item 6 from the "Rozpoznanie Działkopedii" work plan). Pure, deterministic
+# point-based rules — every deduction is named in 'flags', never a black box.
+# ---------------------------------------------------------------------------
+
+def _clean_signals():
+    return dict(
+        landslide={"status": "ok", "has_landslide": False},
+        zoning={"status": "ok", "found": "yes", "table": []},
+        flood_zone={"status": "ok", "in_flood_zone": False},
+        waterlogging={"status": "ok", "at_risk": False},
+        utilities={"status": "ok", "utilities": [{"present": True}] * 4 + [{"present": False}] * 2},
+        nearest_road={"status": "ok", "found": "yes", "is_fallback_powiatowa": False},
+        protected_areas={"status": "ok", "areas": []},
+    )
+
+
+def test_build_verdict_all_clean_scores_100_dobra():
+    result = verdict.build_verdict(**_clean_signals())
+    assert result["score"] == 100
+    assert result["level"] == "dobra"
+    assert result["flags"] == []
+    assert result["incomplete_sections"] == []
+
+
+def test_build_verdict_landslide_and_flood_are_critical_and_stack():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "ok", "has_landslide": True}
+    signals["flood_zone"] = {"status": "ok", "in_flood_zone": True}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100 - 40 - 35
+    assert result["level"] == "wysokie_ryzyko"
+    severities = {f["severity"] for f in result["flags"]}
+    assert "critical" in severities
+    assert len(result["flags"]) == 2
+
+
+def test_build_verdict_score_never_goes_below_zero():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "ok", "has_landslide": True}
+    signals["flood_zone"] = {"status": "ok", "in_flood_zone": True}
+    signals["waterlogging"] = {"status": "ok", "at_risk": True}
+    signals["zoning"] = {"status": "ok", "found": "no"}
+    signals["nearest_road"] = {"status": "ok", "found": "no"}
+    signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
+    signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Park X"}]}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 0
+    assert result["level"] == "wysokie_ryzyko"
+
+
+def test_build_verdict_failed_section_is_incomplete_not_a_flag():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "error", "message": "usługa niedostępna"}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100  # brak danych nie obniża wyniku
+    assert "zagrożenie osuwiskowe" in result["incomplete_sections"]
+    assert result["flags"] == []
+
+
+def test_build_verdict_no_utilities_detected_flags_warning():
+    signals = _clean_signals()
+    signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100 - 15
+    assert any("mediów" in f["text"] for f in result["flags"])
+
+
+def test_build_verdict_protected_area_names_included_in_flag_text():
+    signals = _clean_signals()
+    signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Rezerwat Wiślany"}]}
+    result = verdict.build_verdict(**signals)
+    assert any("Rezerwat Wiślany" in f["text"] for f in result["flags"])
+
+
+def test_build_verdict_no_missing_plan_flag_when_partial():
+    # status "partial" (plan wykryty, ale szczegóły nie doszły) nie powinien
+    # trafić ani do flag, ani do incomplete_sections — to nie jest "brak planu".
+    signals = _clean_signals()
+    signals["zoning"] = {"status": "partial", "found": "yes", "message": "timeout"}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100
+    assert result["incomplete_sections"] == []

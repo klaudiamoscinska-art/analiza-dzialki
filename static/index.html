@@ -33,6 +33,8 @@
     --danger-bg:#fbe9e8;
     --ok:#1f6b3b;
     --ok-bg:#e9f5ec;
+    --warn:#8a5a00;
+    --warn-bg:#fdf3e0;
     --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
     --sans: 'Inter', -apple-system, system-ui, sans-serif;
   }
@@ -190,6 +192,35 @@
   .card.ok{ background:var(--ok-bg); border-left-color:var(--ok); }
   .card.ok h3{ color:var(--ok); }
   .card.ok p{ color:var(--ok); font-weight:700; font-size:16px; }
+
+  .card.warn{ background:var(--warn-bg); border-left-color:var(--warn); }
+  .card.warn h3{ color:var(--warn); }
+  .card.warn p{ color:var(--warn); font-weight:700; font-size:16px; }
+
+  .verdict-card{
+    border:1px solid var(--line);
+    border-left-width:6px;
+    border-radius:10px;
+    padding:16px 18px;
+    margin-bottom:14px;
+    display:flex;
+    gap:16px;
+    align-items:flex-start;
+  }
+  .verdict-card.dobra{ border-left-color:var(--ok); background:var(--ok-bg); }
+  .verdict-card.do_sprawdzenia{ border-left-color:var(--warn); background:var(--warn-bg); }
+  .verdict-card.wysokie_ryzyko{ border-left-color:var(--danger); background:var(--danger-bg); }
+  .verdict-score{ font-family:var(--mono); font-size:36px; font-weight:700; line-height:1; white-space:nowrap; }
+  .verdict-card.dobra .verdict-score{ color:var(--ok); }
+  .verdict-card.do_sprawdzenia .verdict-score{ color:var(--warn); }
+  .verdict-card.wysokie_ryzyko .verdict-score{ color:var(--danger); }
+  .verdict-body{ flex:1; min-width:0; }
+  .verdict-label{ font-size:16px; font-weight:700; margin:0 0 6px; }
+  .verdict-flags{ margin:6px 0 0; padding-left:18px; }
+  .verdict-flags li{ margin-bottom:4px; font-size:13.5px; }
+  .verdict-flags li.critical{ font-weight:700; }
+  .verdict-incomplete{ font-size:12px; opacity:.7; margin-top:8px; }
+  .verdict-disclaimer{ font-size:11.5px; opacity:.6; margin-top:8px; }
 
   .value-card{
     background:var(--ink);
