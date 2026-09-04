@@ -134,36 +134,6 @@ async def _timed(label: str, awaitable: Awaitable[dict[str, Any]]) -> dict[str, 
 # --------------------------------------------------------------------------
 _http_client: Optional[httpx.AsyncClient] = None
 
-# --------------------------------------------------------------------------
-# Second client, IPv4-forced, used ONLY for services/zoning.py's calls to
-# mapy.geoportal.gov.pl (KIMPZP/KIAPP) — added 2026-09-04, diagnostic step 2
-# from HANDOFF.md's MPZP ConnectTimeout investigation.
-#
-# Confirmed live: the exact same GetMap request that this app's backend
-# sends to mapy.geoportal.gov.pl and gets `ConnectTimeout` for succeeds
-# instantly from the reporter's own browser (static/app.js's WMS tile
-# layer hits the identical URL directly, bypassing Render entirely) — so
-# the failure is specific to the Render -> this host network path, not a
-# generally slow/down government service. httpx/httpcore never race
-# IPv4 and IPv6 the way browsers do ("Happy Eyeballs") — if DNS returns an
-# IPv6 address first and that address is slow/unreachable from Render, the
-# whole connect attempt can burn its full timeout on a dead address before
-# ever trying IPv4. Forcing IPv4 (`local_address="0.0.0.0"`, a documented
-# httpcore trick — binding to 0.0.0.0 is only valid for an AF_INET socket,
-# so httpcore's AnyIOBackend.connect_tcp ends up calling
-# anyio.connect_tcp(local_host="0.0.0.0"), which forces the IPv4 family;
-# confirmed by reading httpcore's own source, not guessed) is the
-# cheapest, most reversible way to test that hypothesis.
-#
-# Deliberately scoped to ONLY the two GUGiK hosts zoning.py talks to, via a
-# SEPARATE client — not applied to the shared `_get_http_client()` used by
-# every other service (ULDK/WFS/Overpass/ISOK/PIG-PIB/GDOŚ/GIOŚ/KIUT/KIEG).
-# There is no evidence yet that those have the same problem, and this
-# environment cannot verify any of this live (government network is fully
-# blocked here) — see HANDOFF.md for the full plan and the still-open
-# alternative explanations if this doesn't fix it.
-_gugik_http_client: Optional[httpx.AsyncClient] = None
-
 
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
@@ -172,31 +142,16 @@ def _get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-def _get_gugik_http_client() -> httpx.AsyncClient:
-    global _gugik_http_client
-    if _gugik_http_client is None:
-        _gugik_http_client = httpx.AsyncClient(
-            timeout=HTTP_TIMEOUT,
-            headers={"User-Agent": "AnalizaDzialkiGIS/2.0"},
-            transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
-        )
-    return _gugik_http_client
-
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _get_http_client()
-    _get_gugik_http_client()
     try:
         yield
     finally:
-        global _http_client, _gugik_http_client
+        global _http_client
         if _http_client is not None:
             await _http_client.aclose()
             _http_client = None
-        if _gugik_http_client is not None:
-            await _gugik_http_client.aclose()
-            _gugik_http_client = None
 
 
 app = FastAPI(title="Analiza Działki GIS", lifespan=_lifespan)
@@ -439,21 +394,13 @@ async def resolve_parcel(query: str = Query(default="")):
 
 def _section_specs(
     client: httpx.AsyncClient, teryt_id: str, geometry, cx2180: float, cy2180: float, centroid,
-    gugik_client: Optional[httpx.AsyncClient] = None,
 ) -> list[tuple[str, Awaitable[dict[str, Any]]]]:
     """The 12 concurrent /api/analyze branches, as (name, awaitable) pairs —
     factored out (2026-09-04, performance optimization (c) — see HANDOFF.md)
     so /api/analyze (asyncio.gather, all-at-once) and /api/analyze-stream
     (asyncio.as_completed, progressive SSE) share the exact same list
     instead of two copies that could silently drift apart (different TTL, a
-    service added to one but not the other, etc).
-
-    `gugik_client` — the IPv4-forced client from `_get_gugik_http_client()`
-    (added 2026-09-04, see its definition above) — is used ONLY for the
-    "zoning" branch; every other branch keeps using the regular shared
-    `client`. Falls back to `client` when not given (e.g. existing direct
-    callers/tests that only pass one client) so this stays additive."""
-    zoning_client = gugik_client if gugik_client is not None else client
+    service added to one but not the other, etc)."""
     return [
         ("landslide", cache.get_or_fetch(
             "landslide", teryt_id, TTL_LANDSLIDE, lambda: check_landslide(client, geometry))),
@@ -463,11 +410,9 @@ def _section_specs(
             "cadastre", teryt_id, TTL_CADASTRE, lambda: get_cadastre_basic(client, cx2180, cy2180))),
         # Plan zagospodarowania — cache'owany od 2026-09-04 (optymalizacja
         # (b), krótki 7-dniowy TTL, patrz TTL_ZONING w config.py). Identyfikacja
-        # działki (ULDK) świadomie wciąż NIE jest cache'owana. Używa
-        # `zoning_client` (IPv4-forced), nie zwykłego `client` — patrz
-        # `_get_gugik_http_client()` wyżej.
+        # działki (ULDK) świadomie wciąż NIE jest cache'owana.
         ("zoning", cache.get_or_fetch(
-            "zoning", teryt_id, TTL_ZONING, lambda: get_zoning(zoning_client, cx2180, cy2180))),
+            "zoning", teryt_id, TTL_ZONING, lambda: get_zoning(client, cx2180, cy2180))),
         ("buildings", cache.get_or_fetch(
             "buildings", teryt_id, TTL_BUILDINGS, lambda: get_buildings_on_parcel(client, geometry))),
         ("waterways", cache.get_or_fetch(
@@ -589,7 +534,7 @@ async def analyze(parcel_id: str = Query(default="")):
     parcel, geometry, centroid, cx2180, cy2180, area_m2 = await _resolve_parcel_geometry(parcel_id)
     teryt_id = parcel["teryt_id"]
 
-    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid, _get_gugik_http_client())
+    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid)
     values = await asyncio.gather(*[_timed(name, coro) for name, coro in specs])
     results = dict(zip((name for name, _coro in specs), values))
 
@@ -653,7 +598,7 @@ async def analyze_stream(parcel_id: str = Query(default="")):
     client = _get_http_client()
     parcel, geometry, centroid, cx2180, cy2180, area_m2 = await _resolve_parcel_geometry(parcel_id)
     teryt_id = parcel["teryt_id"]
-    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid, _get_gugik_http_client())
+    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid)
 
     async def _named(name: str, awaitable: Awaitable[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
         try:
