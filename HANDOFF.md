@@ -57,12 +57,16 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
 - **Plan zagospodarowania** (`services/zoning.py`) — KIAPP (nowy Rejestr
   Urbanistyczny) i KIMPZP (stary) odpytywane RÓWNOLEGLE, z szybkim
   podglądem GetMap przed wolnym/zawodnym GetFeatureInfo, **retry przez
-  `_get_with_retry` na `ConnectTimeout`/5xx** (naprawione 2026-09-04 — była
-  to realna usterka zgłoszona przez Klaudię na żywej działce) i **osobny,
-  IPv4-forced `httpx.AsyncClient`** (`main.py::_get_gugik_http_client()`,
-  dodane 2026-09-04, NIE zweryfikowane na żywo — patrz sekcja 3.1, „MPZP
-  ConnectTimeout..."). Notatka o planie ogólnym/OUZ (zasada z 1.09.2026)
-  dołączana, gdy nie znaleziono MPZP.
+  `_get_with_retry` na `ConnectTimeout`/5xx z logowaniem upłynionego czasu**
+  (naprawione/rozszerzone 2026-09-04). **UWAGA**: `ConnectTimeout` dla MPZP
+  dla niektórych, cięższych działek (np. „Korbielów 3917/5") to NIE problem
+  sieciowy — potwierdzone na żywo, że to przeciążenie zasobów backendu na
+  Render (plan darmowy) przy 12 równoległych zapytaniach, dotyka też innych
+  sekcji (Overpass) w tej samej analizie — patrz sekcja 3.1, „Prawdziwa
+  przyczyna". Próba naprawy przez wymuszenie IPv4 (osobny klient tylko dla
+  tego hosta) WYPRÓBOWANA i WYCOFANA 2026-09-04, nie adresowała
+  rzeczywistej przyczyny. Notatka o planie ogólnym/OUZ (zasada z
+  1.09.2026) dołączana, gdy nie znaleziono MPZP.
 - **Budżet czasu dla `/api/resolve`** (`TIMEOUT_RESOLVE_BUDGET=50s`,
   `config.py`) — cała kaskada wyszukiwania działki (do 5 etapów) owinięta w
   `asyncio.wait_for`, więc appka sama zwraca czytelny błąd PO POLSKU zamiast
@@ -83,7 +87,7 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
   patrz sekcja 3.
 - Jakość powietrza (GIOŚ), UI checklisty jako zwarty spis treści z linkami
   do kart szczegółów (nie duplikacja tekstu), PWA (manifest + service
-  worker, network-first), CI (GitHub Actions), 115 testów pytest
+  worker, network-first), CI (GitHub Actions), 113 testów pytest
   (`tests/test_pure_logic.py`, logika bez sieci — sieć rządowa jest
   całkowicie niedostępna z tego środowiska, patrz sekcja 8).
 - Cache-busting: `static/app.js?v=32`, `CACHE_NAME` service workera `v24`
@@ -133,21 +137,19 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
 5. **Działka testowa „Korbielów 3917/5"** (`241704_2.0002.3917/5`, gmina
    Jeleśnia, pow. żywiecki) dopisana do `TEST_PARCELS.md` — Klaudia
    zgłosiła na niej PONOWNIE błąd `ConnectTimeout` dla MPZP mimo
-   wcześniejszej naprawy (retry). Diagnoza: klik na mapie ładuje warstwę
-   WMS bezpośrednio z przeglądarki Klaudii (omija Render), a backend robi
-   identyczne zapytanie GetMap z serwera Render do tego samego hosta i
-   dostaje `ConnectTimeout` — silna poszlaka na problem sieciowy
-   specyficzny dla połączeń Render → `mapy.geoportal.gov.pl`. Pełna
-   diagnoza i 6-punktowy plan w sekcji 3.1, „MPZP ConnectTimeout mimo że
-   warstwa renderuje się na mapie na żywo". **WDROŻONE 2026-09-04, kroki
-   1+2** (logowanie diagnostycznego czasu w `_get_with_retry` + osobny
-   IPv4-forced `httpx.AsyncClient` tylko dla `services/zoning.py`,
-   `main.py::_get_gugik_http_client()`) — **NIE zweryfikowane na żywo**
-   (sieć rządowa niedostępna z tego środowiska). **Następny krok**:
-   Klaudia sprawdza na żywo (Render) czy `ConnectTimeout` dla MPZP ustąpił;
-   jeśli nie, logi `_get_with_retry` (nowy czas upłynięcia w komunikacie)
-   powiedzą, czy warto próbować kroki 3-4 (rozdzielenie timeoutu
-   connect/read, więcej prób z backoff) czy IPv4 to ślepy trop.
+   wcześniejszej naprawy (retry). **Prawdziwa przyczyna znaleziona i
+   potwierdzona na żywo 2026-09-04** (patrz sekcja 3.1, „Prawdziwa
+   przyczyna: przeciążenie zasobów na Render"): to NIE problem sieciowy
+   (pierwsza hipoteza — wymuszenie IPv4 — WYPRÓBOWANA i WYCOFANA, nie
+   pomogła), tylko przeciążenie backendu na Render (plan darmowy,
+   `WEB_CONCURRENCY=1`) przy 12 równoległych zapytaniach dla cięższych
+   lokalizacji — potwierdzone tym, że w tej samej analizie ROWNIEŻ sekcje
+   Overpass dostają timeout, a druga działka testowa (Zawoja, lżejsza
+   lokalizacja) działa bez problemu. **Plan naprawy (ograniczenie
+   współbieżności/`asyncio.Semaphore`, zdjęcie CPU-bound pracy z pętli
+   zdarzeń, ew. płatny plan Render) przygotowany, ale świadomie NIE
+   wdrożony w tej rundzie** (na wyraźną prośbę Klaudii) — patrz sekcja
+   3.1, „Plan naprawy: zmniejszenie obciążenia współbieżnego".
 
 ---
 
@@ -1643,7 +1645,7 @@ takiego buforowania po stronie proxy.
 
 Cache-bust: `app.js?v=32`, `CACHE_NAME` service workera → `v24`.
 
-### MPZP ConnectTimeout mimo że warstwa renderuje się na mapie na żywo — analiza przyczyny + plan naprawy — dodane 2026-09-04, kroki 1+2 WDROŻONE później tego samego dnia (patrz podsekcja niżej)
+### MPZP ConnectTimeout mimo że warstwa renderuje się na mapie na żywo — analiza przyczyny + plan naprawy — dodane 2026-09-04, PRAWDZIWA PRZYCZYNA znaleziona później tego samego dnia dzięki logom z Render (patrz podsekcje niżej — hipoteza IPv4 z tej sekcji okazała się BŁĘDNA i została wycofana)
 
 Klaudia zgłosiła ten sam objaw jak wcześniej (patrz „KIMPZP ConnectTimeout bez
 retry" wyżej — retry przez `_get_with_retry` był wtedy wdrożony jako naprawa)
@@ -1748,52 +1750,101 @@ wspólny, systemowy problem sieciowy Render → infrastruktura rządowa/OSM w
 Polsce. Nie zakładać tego z góry — potwierdzić dopiero po tym, jak krok 2
 faktycznie zadziała dla MPZP.
 
-#### Wdrożone: kroki 1 (logowanie diagnostyczne) i 2 (wymuszenie IPv4) — dodane 2026-09-04, NIE zweryfikowane na żywo
+#### Kroki 1+2 wdrożone, zweryfikowane na żywo, krok 2 WYCOFANY — 2026-09-04
 
-Na prośbę Klaudii wdrożone kroki 1 i 2 z planu wyżej (3-6 świadomie
-zostawione — czekają na wynik weryfikacji na żywo tych dwóch).
+Na prośbę Klaudii wdrożone kroki 1 i 2 z planu wyżej.
 
-**Krok 1 — `http_utils._get_with_retry`** mierzy teraz `time.monotonic()`
-wokół każdej próby i loguje upłynięty czas przy nieudanej próbie (`"GET %s:
-próba %d/%d nieudana po %.1fs (%s: %s)"`, było bez czasu). To jedyny
-sposób odróżnić „naprawdę wyczerpał 15s timeoutu" od „padło od razu"
-(inna diagnoza, inna naprawa) — patrz Render logi przy najbliższym
-odtworzeniu błędu na żywo. Test: `test_get_with_retry_logs_elapsed_time_of_failed_attempt`.
+**Krok 1 — `http_utils._get_with_retry`** mierzy `time.monotonic()` wokół
+każdej próby i loguje upłynięty czas przy nieudanej próbie (`"GET %s: próba
+%d/%d nieudana po %.1fs (%s: %s)"`, było bez czasu). **Zostaje — okazał się
+kluczowy w znalezieniu prawdziwej przyczyny** (patrz niżej). Test:
+`test_get_with_retry_logs_elapsed_time_of_failed_attempt`.
 
-**Krok 2 — drugi, IPv4-forced `httpx.AsyncClient`, TYLKO dla
-`services/zoning.py`** (`main.py::_get_gugik_http_client()`, obok
-istniejącego `_get_http_client()`): `httpx.AsyncHTTPTransport(local_address="0.0.0.0")`
-— potwierdzony (czytając źródło `httpcore._backends.anyio.AnyIOBackend.connect_tcp`,
-nie zgadywany) trik wymuszający rodzinę IPv4, bo `local_host="0.0.0.0"`
-przekazywany do `anyio.connect_tcp()` jest poprawny wyłącznie dla gniazda
-AF_INET. Świadomie NIE zmieniono dzielonego `_get_http_client()` używanego
-przez WSZYSTKIE inne usługi (ULDK/WFS/Overpass/ISOK/PIG-PIB/GDOŚ/GIOŚ/KIUT/
-KIEG) — nie mamy dowodu, że mają ten sam problem, więc nie zmieniać ich
-zachowania bez powodu (zgodnie z planem wyżej). Drugi klient tworzony/
-zamykany w `_lifespan()` dokładnie jak pierwszy. `_section_specs()` dostał
-nowy, opcjonalny parametr `gugik_client` (domyślnie `None` → pada z
-powrotem na zwykły `client`, więc istniejący kod/testy wołające ją z jednym
-klientem nadal działają) — używany WYŁĄCZNIE dla gałęzi `"zoning"`, każda z
-pozostałych 11 sekcji nadal dostaje zwykły, współdzielony klient. Oba
-endpointy (`/api/analyze`, `/api/analyze-stream`) przekazują teraz
-`_get_gugik_http_client()` jako ten parametr. Testy:
+**Krok 2 — drugi, IPv4-forced `httpx.AsyncClient` tylko dla
+`services/zoning.py`** (`main.py::_get_gugik_http_client()`,
+`httpx.AsyncHTTPTransport(local_address="0.0.0.0")`) — **WYCOFANY
+2026-09-04, po weryfikacji na żywo pokazującej, że hipoteza (brak Happy
+Eyeballs w httpx/httpcore) była błędna** (patrz „Prawdziwa przyczyna"
+niżej). Usunięte: `_gugik_http_client`/`_get_gugik_http_client()` z
+`main.py`, parametr `gugik_client` z `_section_specs()`, oba wywołania z
+`/api/analyze`/`/api/analyze-stream`, oraz testy
 `test_get_gugik_http_client_forces_ipv4_and_is_separate_from_shared_client`
-(potwierdza `local_address` i że to osobna, ale wciąż leniwie-singletonowa
-instancja) i `test_analyze_uses_gugik_client_only_for_zoning` (end-to-end
-przez `TestClient`, potwierdza że `get_zoning` dostaje `_gugik_http_client`,
-a `check_landslide` — jako przykład innej sekcji — dostaje zwykły
-`_http_client`, i że to dwa różne obiekty). Razem 115 testów pytest (było 112).
+i `test_analyze_uses_gugik_client_only_for_zoning`. `zoning.py` znowu
+używa zwykłego, współdzielonego `_get_http_client()` jak każda inna
+sekcja. 113 testów pytest (było 115, minus 2 usunięte).
 
-**Nie zweryfikowane na żywo** (jak zawsze przy zmianach dotykających sieci
-rządowej z tego środowiska — patrz sekcja 8): czy wymuszenie IPv4
-faktycznie naprawia `ConnectTimeout` dla MPZP. **Następny krok dla
-Klaudii**: zdeployować, powtórzyć analizę „Korbielów 3917/5" (i
-najlepiej 2-3 inne działki z MPZP) na żywo, i sprawdzić logi Render pod
-kątem nowego czasu upłynięcia w logu `_get_with_retry` — jeśli
-`ConnectTimeout` nadal występuje, ten log powie, czy nadal wyczerpuje pełne
-15s (krok 3/4 z planu warte spróbowania) czy pada natychmiast (inna
-przyczyna, IPv4 nie pomógł, wracać do diagnozy). Cache-bust NIE dotyczy
-(brak zmian w `static/`).
+#### Prawdziwa przyczyna: przeciążenie zasobów na Render (plan darmowy), nie problem sieciowy — potwierdzone na żywo 2026-09-04
+
+Klaudia przetestowała „Korbielów 3917/5" na żywo PO deployu kroku 2 —
+`ConnectTimeout` dla MPZP wystąpił dalej, **trzy razy z rzędu w ciągu
+godziny, za każdym razem niemal identyczny czas** (16.5s/15.8s, 16.4s/15.8s,
+16.1s/15.8s — czyli konsekwentnie tuż powyżej `TIMEOUT_MPZP_PROBE=15s`,
+NIGDY błyskawiczna porażka). To już samo w sobie wykluczało „przypadkową
+usterkę sieciową" (byłaby bardziej nieregularna) i wskazywało na coś
+systematycznego.
+
+**Przełomowa obserwacja**: druga działka testowa („Zawoja",
+`121508_2.0002.16014/3`, ten sam host `mapy.geoportal.gov.pl`, ten sam
+kod) zadziałała PRAWIDŁOWO za pierwszym razem. Gdyby to był problem
+sieciowy Render → ten host (moja hipoteza z kroku 2), obie działki
+zawiodłyby identycznie — nie zawiodły, więc hipoteza IPv4/Happy-Eyeballs
+była błędna.
+
+**Ostateczny dowód, z surowych logów Render**: w TEJ SAMEJ sesji analizy
+„Korbielów 3917/5", w której MPZP dostaje `ConnectTimeout`, **sekcje
+Overpass („najbliższa droga gminna", „cieki wodne") również regularnie
+dostają `ReadTimeout` po dokładnie swoim skonfigurowanym limicie
+(`TIMEOUT_OVERPASS=30s`)** — dwukrotnie, w tym samym przebiegu. Dwa
+zupełnie różne, niezależne serwery zewnętrzne (GUGiK i Overpass) padają
+razem, każdy dokładnie na granicy WŁASNEGO skonfigurowanego timeoutu, przy
+analizie TEJ SAMEJ, cięższej lokalizacji (górska gmina, więcej danych
+OSM). To nie są dwie osobne usterki dwóch rządowych/OSM usług — to jeden
+wspólny mianownik: **appka na Render (plan darmowy, `WEB_CONCURRENCY=1`,
+jeden wątek) odpytuje 12 usług naraz i przy cięższej analizie nie nadąża
+obsłużyć wszystkich połączeń na czas** — pojedyncze zapytania sieciowe nie
+tyle "wiszą", co czekają, aż nasz własny, przeciążony proces w ogóle
+zdąży się nimi zająć, aż upłynie ich timeout. To tłumaczy WSZYSTKO: czemu
+Zawoja (lżejsza lokalizacja) działa, czemu wymuszenie IPv4 nic nie dało
+(to w ogóle nie był problem sieciowy), i czemu błąd jest tak konsekwentny
+(przeciążenie przy tej konkretnej analizie, nie przypadek).
+
+**Wniosek**: dalsze kroki z oryginalnego planu (3 — rozdzielenie timeoutu
+connect/read, 4 — więcej prób z backoff, 5 — WMS dostawcy gminy) **nie
+zaadresują prawdziwej przyczyny** — nie naprawiają problemu sieciowego,
+bo problemu sieciowego nie ma. Właściwy kierunek to zmniejszenie
+obciążenia/współbieżności backendu, nie dalsze majstrowanie przy
+połączeniach do konkretnego hosta. Świadomie NIE zaczynam wdrażać tego w
+tej rundzie — Klaudia poprosiła tylko o plan (patrz niżej), decyzja co
+i kiedy wdrożyć należy do niej.
+
+#### Plan naprawy: zmniejszenie obciążenia współbieżnego na Render (plan darmowy) — NIE WDROŻONY, czeka na decyzję Klaudii
+
+1. **Ogranicz liczbę naprawdę równoległych zapytań sieciowych**
+   (`asyncio.Semaphore` w `main.py::_section_specs()` lub w
+   `http_utils.py`, np. limit 4-6 naraz zamiast wszystkich 12+ na raz) —
+   zamiast odpalać 12 gałęzi jednocześnie, część czeka w kolejce, aż
+   zwolni się "miejsce". Podnosi nieco całkowity czas analizy, ale
+   redukuje szczytowe obciążenie CPU/sieci dokładnie w momencie, gdy dziś
+   ginie ConnectTimeout/ReadTimeout. Najprostszy, najmniej ryzykowny
+   pierwszy krok.
+2. **Zdejmij pracochłonne obliczenia Pythona z pętli zdarzeń
+   (event loop)** — `asyncio.to_thread(...)` dla operacji, które dziś
+   blokują pojedynczy wątek synchronicznie: analiza pikseli WMS
+   (`services/zoning.py::_mpzp_has_plan_drawn`, `services/utilities.py`),
+   parsowanie dużych odpowiedzi JSON z Overpass, operacje geometrii
+   Shapely (`services/cadastre.py` dopasowanie budynków). Jeśli to
+   właśnie te operacje "głodzą" pętlę zdarzeń i nie pozwalają jej na czas
+   obsłużyć gotowości innych połączeń sieciowych — to adresuje przyczynę
+   bezpośrednio, nie tylko objaw.
+3. **Rozważ podniesienie planu Render** (z darmowego na płatny) — jeśli
+   kroki 1-2 nie wystarczą, to najprostsza (choć płatna) dźwignia: więcej
+   przydzielonego CPU eliminuje przeciążenie u źródła bez zmian w kodzie.
+   Decyzja finansowa, nie techniczna — do Klaudii.
+4. **Weryfikacja**: po wdrożeniu wybranego kroku, powtórzyć „Korbielów
+   3917/5" na żywo kilka razy pod rząd (nie raz — potrzebujemy pewności,
+   że przeciążenie faktycznie ustąpiło, nie że akurat się poszczęściło)
+   i sprawdzić, czy `_get_with_retry` przestał logować `nieudana po`
+   blisko granicy skonfigurowanych timeoutów.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
