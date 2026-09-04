@@ -30,7 +30,7 @@ _TIER_POINTS = {"risk": 35, "warning": 10}
 def build_verdict(
     landslide: dict[str, Any], zoning: dict[str, Any], flood_zone: dict[str, Any],
     waterlogging: dict[str, Any], utilities: dict[str, Any], nearest_road: dict[str, Any],
-    protected_areas: dict[str, Any], mining_areas: dict[str, Any],
+    protected_areas: dict[str, Any], mining_areas: dict[str, Any], air_quality: dict[str, Any],
 ) -> dict[str, Any]:
     """Returns score (0-100), level, the full row list (ok included), a
     3-way tier count, which sections had no usable data ('incomplete'),
@@ -124,6 +124,17 @@ def build_verdict(
                 else "Nie wykryto żadnych mediów w pobliżu działki (GESUT).", points=15 if not present else None)
     else:
         incomplete.append("media / uzbrojenie terenu")
+
+    if air_quality.get("status") == "ok":
+        dist_km = air_quality["distance_m"] / 1000
+        add_row("air_quality", "Powietrze", "ok",
+                f"Stacja GIOŚ {air_quality['station_name']} ({dist_km:.1f} km): "
+                f"{air_quality['pollutant']} {air_quality['value']} {air_quality['unit']} — ostatni dostępny pomiar.")
+        # Informacyjne, nie punktowane — nie mamy (jeszcze) logiki progów
+        # zdrowotnych WHO/UE, więc appka nie udaje oceny ryzyka, tylko
+        # pokazuje surowy odczyt, tak jak konkurencja.
+    else:
+        incomplete.append("jakość powietrza")
 
     score = max(0, min(100, score))
     if score >= 80:

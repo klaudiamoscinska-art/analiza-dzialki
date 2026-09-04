@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 81 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 89 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -806,6 +806,88 @@ Klaudia zaakceptowała plan: najpierw ta runda (prezentacja, zero nowych
 usług), następnie zbadanie GIOŚ (jakość powietrza) jako najbardziej
 obiecującej kolejnej integracji — to jeszcze nie zostało zrobione, patrz
 koniec tego dokumentu / rozmowa z Klaudią o kolejnych krokach.
+
+### Jakość powietrza — GIOŚ (item 3 z planu po Działkopedii) — dodane 2026-09-04
+
+Trzeci i ostatni punkt zaakceptowanego planu: po prezentacji (checklist +
+lista kroków, bez nowych danych) — pierwsza faktycznie NOWA kategoria
+danych od czasu poprzedniej rundy usług (osuwiska/powódź/podtopienia/
+przyroda/kopalnie). Źródło: GIOŚ (Główny Inspektorat Ochrony Środowiska),
+publiczne REST API `api.gios.gov.pl/pjp-api/v1/rest`, bez klucza API.
+
+**Wiarygodność wyraźnie wyższa niż większość innych nowych integracji w
+tym projekcie**: URL bazowy i kształt JSON-a zostały potwierdzone przez
+kilkanaście niezależnych projektów open-source, które przechwyciły
+prawdziwe odpowiedzi tego API (nie tylko wygląda prawdopodobnie — ma
+realne, powtarzające się fixture'y). Mimo to NIE zweryfikowane na żywo z
+tej appki — domeny rządowe są zablokowane w tym środowisku (piaskownica).
+
+**Trzy pułapki, które ten research znalazł i którym implementacja
+świadomie zapobiega:**
+1. **Stary, nie-wersjonowany URL (`pjp-api/rest/`, bez `/v1/`) jest
+   martwy** — wycofany 30.06.2025, zwraca teraz HTTP 410 Gone. Każda
+   implementacja ściągnięta ze starszego poradnika/przykładu na to
+   wpadnie. `config.py::GIOS_API_URL` używa jawnie `/v1/`.
+2. **Nie istnieje endpoint „najbliższa stacja"** — API ma tylko listę
+   WSZYSTKICH stacji (`station/findAll`, ~288 stacji, jedna strona przy
+   `size=500`, ale kod i tak paginuje po `totalPages` zamiast zakładać).
+   `air_quality.py` pobiera całą listę RAZ (cache pod stałym kluczem
+   `"all"`, nie per-działka — to dane takie same dla całej Polski) i sam
+   sortuje po odległości (`geod.inv`, ten sam wzorzec co `wfs_search.py`).
+3. **~42% polskich stacji jest manualnych** (pomiary laboratoryjne, bez
+   danych na bieżąco — `data/getData` po prostu nic nie zwraca) —
+   implementacja próbuje do 5 najbliższych kandydatów po kolei, cicho
+   pomijając te bez działającego czujnika PM2.5/PM10 lub bez świeżego
+   odczytu, zamiast ufać samej najbliższej stacji. Dodatkowo najnowszy
+   wiersz (czasem dwa) w `data/getData` często ma `"Wartość": null`
+   (pomiar jeszcze niesfinalizowany) — kod skanuje w przód do pierwszej
+   niepustej wartości zamiast ufać indeksowi 0.
+
+**Świadoma decyzja zakresu**: appka pokazuje surowy odczyt (stężenie +
+jednostka + stacja + odległość + czas pomiaru), BEZ własnej oceny ryzyka
+zdrowotnego — nie ma logiki progów WHO/UE. Dokładnie jak konkurencja
+(Działkopedia też tylko pokazuje liczbę, bez interpretacji). Dlatego w
+`verdict.py` to jedyny sygnał zawsze w tierze `"ok"` — informacyjny, nigdy
+nie odejmuje punktów.
+
+**TTL świadomie inny niż reszta appki**: `TTL_AIR_QUALITY = 3600` (1h) —
+jedyny wyjątek od filozofii „cachuj agresywnie" (30-180 dni dla reszty
+usług) przyjętej wcześniej w projekcie, bo odczyty faktycznie aktualizują
+się co godzinę i dłuższy cache pokazywałby nieaktualne dane. Lista stacji
+(rzadko się zmienia) ma osobny, długi TTL: `TTL_AIR_QUALITY_STATIONS = 30
+dni`.
+
+**ToS GIOŚ wymaga widocznej atrybucji źródła** — appka pokazuje
+`"Źródło danych: GIOŚ — EKOINFONET"` w karcie wyniku.
+
+**Pliki**: nowy `services/air_quality.py` (paginacja `station/findAll`,
+`_nearest_stations` z cache, `_find_pollutant_sensor` z fallbackiem PM2.5
+→ PM10, `_latest_value` ze skanowaniem null-i). `verdict.py::build_verdict()`
+przyjmuje teraz `air_quality` jako 9. parametr (WYMAGANY). `due_diligence.py`
+— pozycja „Sprawdź jakość powietrza" pokryta kluczem `"air_quality"`.
+`main.py` — nowa gałąź w `asyncio.gather()`, cache pod kluczem per-działka
+(`teryt_id`, TTL 1h), nowy klucz `"air_quality"` w odpowiedzi `/api/analyze`.
+Frontend — nowa karta „Jakość powietrza" w grupie sekcji „Ryzyka
+środowiskowe” (`app.js`), z atrybucją i zastrzeżeniem o braku oceny
+ryzyka. Cache-bust: `app.js?v=26`, service worker `v18`.
+
+**Testy**: 8 nowych testów pytest dla `air_quality.py` — sukces PM2.5,
+fallback na PM10, skanowanie po `null`, pominięcie stacji manualnej (brak
+czujnika), pominięcie stacji bez świeżego odczytu, wyczerpanie
+kandydatów, brak stacji w bazie, błąd pobrania listy stacji. Wymagały
+nowego fake-klienta HTTP (`_FakeAirQualityClient`) routującego po ścieżce
+URL, bo `get_air_quality` robi 3 różne typy zapytań sekwencyjnie (lista
+stacji → czujniki stacji → dane czujnika) — istniejące fake'y w tym pliku
+testowym zwracały tylko jedną, stałą odpowiedź na klienta. `_clean_signals()`
+i test `..._all_clean_scores_100_dobra` zaktualizowane pod nowy wymagany
+parametr (`counts.ok` 8→9). Zweryfikowane wizualnie (Playwright, ten sam
+skrypt/wzorzec co poprzednie 2 rundy) — karta renderuje się poprawnie w
+sekcji „Ryzyka środowiskowe", zero błędów JS.
+
+To zamyka 3-punktowy plan zaakceptowany przez Klaudię po analizie
+Działkopedii. Pozostałe zbadane-ale-nie-zrobione kategorie danych z tego
+researchu (azbest, Copernicus EGMS, Seveso, UKE, RCN) patrz punkt wyżej —
+wciąż otwarte, nie rozpoczynać bez wyraźnej prośby Klaudii.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

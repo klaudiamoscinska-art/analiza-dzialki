@@ -40,7 +40,7 @@ _CHECKLIST: list[dict[str, Any]] = [
             {"text": "Sprawdź strefę zalewową", "covers": "flood_zone"},
             {"text": "Sprawdź tereny chronione", "covers": "protected_areas"},
             {"text": "Sprawdź zagrożenie osuwiskowe i warunki gruntowe", "covers": "landslide"},
-            {"text": "Sprawdź jakość powietrza", "covers": None},
+            {"text": "Sprawdź jakość powietrza", "covers": "air_quality"},
         ],
     },
     {

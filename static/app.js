@@ -932,6 +932,21 @@
     natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
     const cardNature = `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
 
+    // Jakość powietrza (GIOŚ) — dodane 2026-09-04
+    const aq = data.air_quality;
+    let cardAirQuality;
+    if (aq.status === "ok") {
+      const distTxt = aq.distance_m >= 1000 ? `${(aq.distance_m / 1000).toFixed(1)} km` : `${aq.distance_m} m`;
+      cardAirQuality = `<div class="card muted"><h3>Jakość powietrza</h3>
+        <p>Najbliższa stacja GIOŚ: <strong>${escapeHTML(aq.station_name)}</strong> (${distTxt})</p>
+        <p>${escapeHTML(aq.pollutant)}: <strong>${aq.value} ${escapeHTML(aq.unit)}</strong>
+        ${aq.measured_at ? ` — pomiar z ${escapeHTML(aq.measured_at)}` : ""}</p>
+        <p class="disclaimer">Surowy odczyt bez oceny ryzyka zdrowotnego (brak progów WHO/UE w tej wersji).</p>
+        <p class="disclaimer" style="opacity:.7;">${escapeHTML(aq.attribution)}</p></div>`;
+    } else {
+      cardAirQuality = cardHTML({ title: "Jakość powietrza (GIOŚ)", text: aq.message });
+    }
+
     // Odległość do najbliższej drogi gminnej
     const nr = data.nearest_road;
     let nrInner = "";
@@ -1035,7 +1050,7 @@
     </details>`;
     html += `<details class="section-group" open>
       <summary>Ryzyka środowiskowe</summary>
-      ${cardLandslide}${cardHydrology}${cardNature}
+      ${cardLandslide}${cardHydrology}${cardNature}${cardAirQuality}
     </details>`;
     html += `<details class="section-group" open>
       <summary>Media i dostęp do drogi</summary>

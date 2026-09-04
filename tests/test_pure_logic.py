@@ -13,7 +13,9 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import cache, due_diligence, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning
+from services import (
+    air_quality, cache, due_diligence, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +858,11 @@ def _clean_signals():
         nearest_road={"status": "ok", "found": "yes", "is_fallback_powiatowa": False},
         protected_areas={"status": "ok", "areas": []},
         mining_areas={"status": "ok", "has_mining_area": False},
+        air_quality={
+            "status": "ok", "station_name": "Testowa", "distance_m": 1000,
+            "pollutant": "PM2.5", "value": 10.0, "unit": "µg/m³",
+            "measured_at": "2026-09-04 10:00:00", "attribution": "Źródło danych: GIOŚ — EKOINFONET",
+        },
     )
 
 
@@ -868,7 +875,7 @@ def test_build_verdict_all_clean_scores_100_dobra():
     assert result["score"] == 100
     assert result["level"] == "dobra"
     assert result["incomplete_sections"] == []
-    assert result["counts"] == {"risk": 0, "warning": 0, "ok": 8}
+    assert result["counts"] == {"risk": 0, "warning": 0, "ok": 9}
     assert all(r["tier"] == "ok" for r in result["rows"])
 
 
@@ -1122,3 +1129,158 @@ async def test_check_mining_areas_request_failure_returns_error():
     geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
     result = await geology.check_mining_areas(_FailingGetClient(), geometry)
     assert result["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# services.air_quality — GIOŚ nearest-station PM2.5/PM10 lookup, added
+# 2026-09-04. get_air_quality makes three distinct kinds of calls (station
+# list, sensors-per-station, data-per-sensor), so it needs a fake client
+# that routes by URL path rather than the single-fixed-payload fakes above.
+# ---------------------------------------------------------------------------
+
+class _FakeAirQualityResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+class _FakeAirQualityClient:
+    def __init__(self, stations, sensors_by_station, data_by_sensor):
+        self._stations = stations
+        self._sensors_by_station = sensors_by_station
+        self._data_by_sensor = data_by_sensor
+
+    async def get(self, url, params=None, timeout=None):
+        if url.endswith("/station/findAll"):
+            page = (params or {}).get("page", 0)
+            if page == 0:
+                return _FakeAirQualityResponse({"Lista stacji pomiarowych": self._stations, "totalPages": 1})
+            return _FakeAirQualityResponse({"Lista stacji pomiarowych": [], "totalPages": 1})
+        if "/station/sensors/" in url:
+            station_id = int(url.rsplit("/", 1)[-1])
+            sensors = self._sensors_by_station.get(station_id, [])
+            return _FakeAirQualityResponse({"Lista stanowisk pomiarowych dla podanej stacji": sensors})
+        if "/data/getData/" in url:
+            sensor_id = int(url.rsplit("/", 1)[-1])
+            rows = self._data_by_sensor.get(sensor_id, [])
+            return _FakeAirQualityResponse({"Lista danych pomiarowych": rows})
+        raise AssertionError(f"unexpected URL: {url}")
+
+
+def _aq_station(station_id, name, lon, lat):
+    return {"Identyfikator stacji": station_id, "Nazwa stacji": name, "WGS84 φ N": str(lat), "WGS84 λ E": str(lon)}
+
+
+def _aq_sensor(sensor_id, code):
+    return {"Identyfikator stanowiska": sensor_id, "Wskaźnik - kod": code}
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_nearest_station_pm25(cache_db):
+    stations = [_aq_station(1, "Bliska", 19.0, 50.0), _aq_station(2, "Daleka", 25.0, 54.0)]
+    sensors = {1: [_aq_sensor(101, "PM2.5"), _aq_sensor(102, "PM10")]}
+    data = {101: [{"Wartość": 12.5, "Data": "2026-09-04 09:00:00"}]}
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["station_name"] == "Bliska"
+    assert result["pollutant"] == "PM2.5"
+    assert result["value"] == 12.5
+    assert result["unit"] == "µg/m³"
+    assert "GIOŚ" in result["attribution"]
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_falls_back_to_pm10_when_no_pm25(cache_db):
+    stations = [_aq_station(1, "Stacja", 19.0, 50.0)]
+    sensors = {1: [_aq_sensor(201, "PM10")]}
+    data = {201: [{"Wartość": 30.0, "Data": "2026-09-04 09:00:00"}]}
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["pollutant"] == "PM10"
+    assert result["value"] == 30.0
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_scans_past_null_values(cache_db):
+    stations = [_aq_station(1, "Stacja", 19.0, 50.0)]
+    sensors = {1: [_aq_sensor(301, "PM2.5")]}
+    data = {301: [
+        {"Wartość": None, "Data": "2026-09-04 10:00:00"},
+        {"Wartość": None, "Data": "2026-09-04 09:00:00"},
+        {"Wartość": 8.1, "Data": "2026-09-04 08:00:00"},
+    ]}
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["value"] == 8.1
+    assert result["measured_at"] == "2026-09-04 08:00:00"
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_skips_manual_station_with_no_sensors(cache_db):
+    stations = [_aq_station(1, "Manualna", 19.0, 50.0), _aq_station(2, "Automatyczna", 19.1, 50.1)]
+    sensors = {1: [], 2: [_aq_sensor(401, "PM2.5")]}
+    data = {401: [{"Wartość": 15.0, "Data": "2026-09-04 09:00:00"}]}
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["station_name"] == "Automatyczna"
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_skips_station_with_only_null_readings(cache_db):
+    stations = [_aq_station(1, "BezDanych", 19.0, 50.0), _aq_station(2, "ZDanymi", 19.1, 50.1)]
+    sensors = {1: [_aq_sensor(501, "PM2.5")], 2: [_aq_sensor(502, "PM2.5")]}
+    data = {
+        501: [{"Wartość": None, "Data": "2026-09-04 09:00:00"}],
+        502: [{"Wartość": 20.0, "Data": "2026-09-04 09:00:00"}],
+    }
+    client = _FakeAirQualityClient(stations, sensors, data)
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "ok"
+    assert result["station_name"] == "ZDanymi"
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_all_candidates_exhausted_is_error(cache_db):
+    stations = [_aq_station(i, f"Stacja{i}", 19.0 + i * 0.01, 50.0) for i in range(1, 4)]
+    client = _FakeAirQualityClient(stations, {}, {})
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_no_stations_in_database_is_error(cache_db):
+    client = _FakeAirQualityClient([], {}, {})
+
+    result = await air_quality.get_air_quality(client, 19.0, 50.0)
+
+    assert result["status"] == "error"
+    assert "stacji" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_get_air_quality_station_list_fetch_failure_is_error(cache_db):
+    result = await air_quality.get_air_quality(_FailingGetClient(), 19.0, 50.0)
+
+    assert result["status"] == "error"
+    assert "GIOŚ" in result["message"]

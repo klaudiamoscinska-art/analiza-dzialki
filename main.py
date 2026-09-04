@@ -71,12 +71,13 @@ from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
 
 from config import (
-    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TTL_BUILDINGS, TTL_CADASTRE,
+    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TTL_AIR_QUALITY, TTL_BUILDINGS, TTL_CADASTRE,
     TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
     TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, logger,
 )
 from geo_utils import geod, to_2180
 from services import cache
+from services.air_quality import get_air_quality
 from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
 from services.geocoding import (
     geocode_gmina_candidates, geocode_powiat_gmina_prefixes, resolve_address_to_parcels,
@@ -370,10 +371,14 @@ async def analyze(parcel_id: str = Query(default="")):
                 "protected_areas", teryt_id, TTL_PROTECTED_AREAS, lambda: get_protected_areas(client, cx2180, cy2180))),
             _timed("mining_areas", cache.get_or_fetch(
                 "mining_areas", teryt_id, TTL_MINING_AREAS, lambda: check_mining_areas(client, geometry))),
+            # TTL krótki (1h) — w przeciwieństwie do reszty tych usług,
+            # odczyty GIOŚ faktycznie zmieniają się co godzinę.
+            _timed("air_quality", cache.get_or_fetch(
+                "air_quality", teryt_id, TTL_AIR_QUALITY, lambda: get_air_quality(client, centroid.x, centroid.y))),
         )
     (landslide, utilities, cadastre, zoning, buildings,
      waterways, flood_zone, waterlogging, nearest_road,
-     protected_areas, mining_areas) = results
+     protected_areas, mining_areas, air_quality) = results
 
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
@@ -383,6 +388,7 @@ async def analyze(parcel_id: str = Query(default="")):
     ekw_link = get_ekw_link()
     verdict = build_verdict(
         landslide, zoning, flood_zone, waterlogging, utilities, nearest_road, protected_areas, mining_areas,
+        air_quality,
     )
 
     # Które z 25 punktów listy "przed zakupem" ta analiza już realnie
@@ -405,6 +411,8 @@ async def analyze(parcel_id: str = Query(default="")):
         covered.add("water_sewage")
     if valuation.get("status") == "ok":
         covered.add("valuation")
+    if air_quality.get("status") == "ok":
+        covered.add("air_quality")
     due_diligence = build_due_diligence_checklist(covered)
 
     return {
@@ -430,6 +438,7 @@ async def analyze(parcel_id: str = Query(default="")):
         "zoning": zoning,
         "protected_areas": protected_areas,
         "mining_areas": mining_areas,
+        "air_quality": air_quality,
         "hydrology": {
             "waterways": waterways,
             "flood_zone": flood_zone,
