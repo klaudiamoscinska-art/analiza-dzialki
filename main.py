@@ -71,8 +71,8 @@ from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
 
 from config import (
-    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TTL_AIR_QUALITY, TTL_BUILDINGS, TTL_CADASTRE,
-    TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
+    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TIMEOUT_RESOLVE_BUDGET, TTL_AIR_QUALITY, TTL_BUILDINGS,
+    TTL_CADASTRE, TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
     TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, logger,
 )
 from geo_utils import geod, to_2180
@@ -262,60 +262,80 @@ async def resolve_parcel(query: str = Query(default="")):
     if len(query) < 3:
         raise HTTPException(400, "Podaj nazwę miejscowości i numer działki (lub pełny identyfikator TERYT).")
 
-    async def scan_gminas_both_ways(gminas: list[dict], parcel_part: str) -> list[dict]:
-        """Stages 2+3 above, applied to any list of gmina candidates (used
-        for both the gmina-name and powiat-name pathways): ID-based obręb
-        scan first (cheap, usually sufficient), then — only if that finds
-        nothing — the WFS geometry-based scan (only for candidates with
-        known coordinates; see geocode_gmina_candidates/
-        geocode_powiat_gmina_prefixes)."""
-        id_scan_results = await asyncio.gather(
-            *[scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part) for g in gminas]
+    async def _do_resolve() -> list[dict]:
+        async def scan_gminas_both_ways(gminas: list[dict], parcel_part: str) -> list[dict]:
+            """Stages 2+3 above, applied to any list of gmina candidates (used
+            for both the gmina-name and powiat-name pathways): ID-based obręb
+            scan first (cheap, usually sufficient), then — only if that finds
+            nothing — the WFS geometry-based scan (only for candidates with
+            known coordinates; see geocode_gmina_candidates/
+            geocode_powiat_gmina_prefixes)."""
+            id_scan_results = await asyncio.gather(
+                *[scan_gmina_obreby_for_parcel(client, g["gmina_prefix"], parcel_part) for g in gminas]
+            )
+            hits = [h for r in id_scan_results for h in r]
+            if hits:
+                return hits
+
+            geocoded = [g for g in gminas if "lon" in g]
+            wfs_scan_results = await asyncio.gather(
+                *[
+                    scan_wfs_for_parcel_number(client, g["lon"], g["lat"], g["gmina_prefix"], parcel_part)
+                    for g in geocoded
+                ]
+            )
+            return [h for r in wfs_scan_results for h in r]
+
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
+            candidates = await uldk_search_candidates(client, query)
+
+            if not candidates and query.count(".") >= 2 and " " not in query:
+                # Wygląda jak pełny identyfikator TERYT (gmina.obręb.numer) —
+                # spróbuj bardziej bezpośredniego zapytania GetParcelById
+                # zamiast tylko GetParcelByIdOrNr powyżej. Potwierdzone na żywo
+                # 2026-09-03: prawdziwa, poprawna działka (zweryfikowana przez
+                # polska.e-mapa.net) nie została znaleziona przez ByIdOrNr —
+                # patrz find_parcel_by_id_direct.
+                direct = await find_parcel_by_id_direct(client, query)
+                if direct:
+                    candidates = [direct]
+
+            if not candidates and " " in query:
+                name_part, parcel_part = query.rsplit(" ", 1)
+                name_part = name_part.strip()
+                if name_part and parcel_part:
+                    gminas = await geocode_gmina_candidates(client, name_part)
+                    candidates.extend(await scan_gminas_both_ways(gminas, parcel_part))
+
+                    if not candidates:
+                        candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
+
+                    if not candidates:
+                        # Etap 5: "Name" mogła być powiatem, nie gminą (np.
+                        # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
+                        # tym powiecie, tym samym dwuetapowym (ID + WFS)
+                        # skanem. Patrz docstring wyżej i HANDOFF.md.
+                        powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
+                        candidates.extend(await scan_gminas_both_ways(powiat_gminas, parcel_part))
+
+        return candidates
+
+    # Ta kaskada (do 5 etapów, każdy z własnymi wywołaniami sieciowymi,
+    # niektóre do 45s) nie miała wcześniej ŻADNEGO łącznego budżetu czasu —
+    # dodane 2026-09-04, patrz TIMEOUT_RESOLVE_BUDGET w config.py za pełne
+    # wyjaśnienie (zgłoszone przez Klaudię jako niezrozumiały błąd sieci dla
+    # zapytania "Korbielów 3917/5"). Bez tego appka czekała, aż zrobi to za
+    # nią serwer proxy — który zwraca HTML zamiast JSON, mylący frontend.
+    try:
+        candidates = await asyncio.wait_for(_do_resolve(), timeout=TIMEOUT_RESOLVE_BUDGET)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            504,
+            f"Wyszukiwanie \"{query}\" trwało zbyt długo (ponad {int(TIMEOUT_RESOLVE_BUDGET)}s) — "
+            "serwery gminne bywają wolne, zwłaszcza gdy appka musi sprawdzić wiele gmin naraz. "
+            "Spróbuj ponownie za chwilę, albo — jeśli go znasz — wpisz pełny identyfikator "
+            "TERYT działki zamiast nazwy miejscowości.",
         )
-        hits = [h for r in id_scan_results for h in r]
-        if hits:
-            return hits
-
-        geocoded = [g for g in gminas if "lon" in g]
-        wfs_scan_results = await asyncio.gather(
-            *[
-                scan_wfs_for_parcel_number(client, g["lon"], g["lat"], g["gmina_prefix"], parcel_part)
-                for g in geocoded
-            ]
-        )
-        return [h for r in wfs_scan_results for h in r]
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-        candidates = await uldk_search_candidates(client, query)
-
-        if not candidates and query.count(".") >= 2 and " " not in query:
-            # Wygląda jak pełny identyfikator TERYT (gmina.obręb.numer) —
-            # spróbuj bardziej bezpośredniego zapytania GetParcelById
-            # zamiast tylko GetParcelByIdOrNr powyżej. Potwierdzone na żywo
-            # 2026-09-03: prawdziwa, poprawna działka (zweryfikowana przez
-            # polska.e-mapa.net) nie została znaleziona przez ByIdOrNr —
-            # patrz find_parcel_by_id_direct.
-            direct = await find_parcel_by_id_direct(client, query)
-            if direct:
-                candidates = [direct]
-
-        if not candidates and " " in query:
-            name_part, parcel_part = query.rsplit(" ", 1)
-            name_part = name_part.strip()
-            if name_part and parcel_part:
-                gminas = await geocode_gmina_candidates(client, name_part)
-                candidates.extend(await scan_gminas_both_ways(gminas, parcel_part))
-
-                if not candidates:
-                    candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
-
-                if not candidates:
-                    # Etap 5: "Name" mogła być powiatem, nie gminą (np.
-                    # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
-                    # tym powiecie, tym samym dwuetapowym (ID + WFS)
-                    # skanem. Patrz docstring wyżej i HANDOFF.md.
-                    powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
-                    candidates.extend(await scan_gminas_both_ways(powiat_gminas, parcel_part))
 
     if not candidates:
         raise HTTPException(

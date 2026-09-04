@@ -183,6 +183,23 @@ TIMEOUT_MPZP_PROBE = 15.0  # MPZP/APP GetMap visual pre-check
 # GetFeature) is a reasoned middle ground, not a guaranteed fix.
 TIMEOUT_MPZP_DETAIL = 20.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in asyncio.wait_for)
 TIMEOUT_OBREB_SCAN = 10.0  # per-obręb brute-force scan (many parallel short requests)
+# Added 2026-09-04 — /api/resolve's multi-stage fallback cascade (see its
+# docstring in main.py) had NO overall time budget: for a place name that
+# fails every earlier stage and falls all the way to the powiat-wide scan,
+# the chain can plausibly exceed a minute (each gmina's own WFS fallback
+# alone can take up to TIMEOUT_WFS_POWIAT=45s). Without a budget, a request
+# that slow risks hitting Render's own platform-level proxy timeout first,
+# which returns an HTML error page instead of JSON — the frontend's
+# resp.json() then throws a raw SyntaxError, surfacing as a confusing,
+# untranslated browser error instead of one of this app's own Polish
+# messages. Reported live by Klaudia ("Wystąpił nieoczekiwany błąd sieci
+# lub przeglądarki" for query "Korbielów 3917/5"). This budget makes sure
+# OUR OWN clean timeout message fires first — chosen to comfortably exceed
+# one gmina's worst case (45s) with margin, while staying safely under
+# common platform proxy timeouts (not independently confirmed for Render
+# specifically from this sandbox — gov.pl and Render's own dashboard are
+# both unreachable here).
+TIMEOUT_RESOLVE_BUDGET = 50.0
 
 HTTP_TIMEOUT = TIMEOUT_DEFAULT
 

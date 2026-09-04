@@ -17,11 +17,13 @@ import time
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from PIL import Image
 from shapely.geometry import Polygon
 
 import geo_utils
 import http_utils
+import main
 from config import KIAPP_URL, KIMPZP_URL, TIMEOUT_OVERPASS
 from services import (
     air_quality, cache, due_diligence, geocoding, geology, nature, uldk, utilities, valuation, verdict, wfs_search,
@@ -1662,3 +1664,30 @@ async def test_overpass_query_does_not_wait_for_a_slower_blocked_mirror(monkeypa
 
     assert result == {"elements": ["quick"]}
     assert elapsed < 0.2  # well under the slow mirror's 0.3s delay
+
+
+# ---------------------------------------------------------------------------
+# main.resolve_parcel — the multi-stage /api/resolve cascade had no overall
+# time budget. Fixed 2026-09-04, reported live by Klaudia as a confusing,
+# untranslated browser error ("Wystąpił nieoczekiwany błąd sieci lub
+# przeglądarki") for query "Korbielów 3917/5" — a query slow enough to
+# plausibly exceed Render's own platform proxy timeout, which returns HTML
+# instead of JSON and breaks the frontend's resp.json() parse. See
+# TIMEOUT_RESOLVE_BUDGET in config.py.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_resolve_parcel_times_out_cleanly_instead_of_hanging(monkeypatch):
+    monkeypatch.setattr(main, "TIMEOUT_RESOLVE_BUDGET", 0.05)
+
+    async def _hangs(client, query):
+        await asyncio.sleep(5)
+        return []
+
+    monkeypatch.setattr(main, "uldk_search_candidates", _hangs)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await main.resolve_parcel(query="Korbielów 3917/5")
+
+    assert exc_info.value.status_code == 504
+    assert "Korbielów 3917/5" in exc_info.value.detail
