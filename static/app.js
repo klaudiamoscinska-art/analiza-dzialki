@@ -580,20 +580,105 @@
     }
   }
 
+  // Te 12 kluczy MUSI zgadzać się z main.py's _section_specs() (backend) —
+  // to jest lista sekcji, których jeszcze brakuje ("Sprawdzam N/12"), i to
+  // ona decyduje, kiedy dana karta przestaje być placeholderem "Sprawdzam…"
+  // i staje się prawdziwą treścią.
+  const SECTION_KEYS = [
+    "landslide", "utilities", "cadastre", "zoning", "buildings",
+    "waterways", "flood_zone", "waterlogging", "nearest_road",
+    "protected_areas", "mining_areas", "air_quality",
+  ];
+  const HYDROLOGY_KEYS = new Set(["waterways", "flood_zone", "waterlogging"]);
+
+  // Konsumuje /api/analyze-stream (Server-Sent Events, patrz main.py) zamiast
+  // jednego dużego /api/analyze — dodane 2026-09-04, optymalizacja (c) z
+  // HANDOFF.md "Propozycje optymalizacji wydajności": szybkie sekcje (np.
+  // osuwiska) renderują się na bieżąco, zamiast czekać, aż wszystkie 12
+  // (łącznie z najwolniejszym planem zagospodarowania) dojdzie naraz.
+  // Świadomie fetch()+ReadableStream, NIE natywny EventSource — EventSource
+  // nie daje dostępu do treści odpowiedzi błędu (kod status + JSON detail),
+  // a ten dokładny komunikat backendu ("Nie znaleziono działki dla...") to
+  // coś, co ta appka zawsze pokazywała użytkowniczce wprost.
+  async function streamAnalysis(terytId) {
+    const resp = await fetch(`/api/analyze-stream?parcel_id=${encodeURIComponent(terytId)}`);
+
+    if (!resp.ok) {
+      let detail = "Nie udało się przeanalizować działki.";
+      try {
+        const errData = await resp.json();
+        if (errData && errData.detail) detail = errData.detail;
+      } catch (e) {
+        // Odpowiedź błędu nie była JSON-em (np. strona błędu proxy) —
+        // zostaw domyślny, polski komunikat zamiast rzucać dalej.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) {
+      // Bardzo stara przeglądarka bez fetch() streaming — appka nie ma jak
+      // pokazać wyniku progresywnie. Nie powinno się zdarzyć na żadnej
+      // przeglądarce, na której appka jest realnie używana (patrz
+      // HANDOFF.md o iOS Safari PWA), ale lepiej jasny komunikat niż cichy
+      // brak wyniku.
+      throw new Error("Ta przeglądarka nie obsługuje strumieniowania odpowiedzi — spróbuj zaktualizować przeglądarkę.");
+    }
+
+    const data = { hydrology: {} };
+    const pending = new Set(SECTION_KEYS);
+    let sawMeta = false;
+
+    function applyEvent(eventName, payload) {
+      if (eventName === "meta") {
+        Object.assign(data, payload);
+        sawMeta = true;
+        renderMap(data);
+      } else if (eventName === "section") {
+        if (HYDROLOGY_KEYS.has(payload.key)) {
+          data.hydrology[payload.key] = payload.value;
+        } else {
+          data[payload.key] = payload.value;
+        }
+        pending.delete(payload.key);
+      } else if (eventName === "done") {
+        Object.assign(data, payload);
+      }
+      if (sawMeta) renderResults(data, pending);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sepIndex;
+      while ((sepIndex = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sepIndex);
+        buffer = buffer.slice(sepIndex + 2);
+        let eventName = null;
+        let dataLine = null;
+        frame.split("\n").forEach((line) => {
+          if (line.startsWith("event: ")) eventName = line.slice(7);
+          else if (line.startsWith("data: ")) dataLine = line.slice(6);
+        });
+        if (eventName && dataLine !== null) {
+          try {
+            applyEvent(eventName, JSON.parse(dataLine));
+          } catch (e) {
+            console.error("Nie udało się przetworzyć zdarzenia analizy:", eventName, e);
+          }
+        }
+      }
+    }
+  }
+
   async function analyzeTerytId(terytId, loadingSetter = setLoading) {
     loadingSetter(true);
     clearError();
     results.innerHTML = "";
     try {
-      const resp = await fetch(`/api/analyze?parcel_id=${encodeURIComponent(terytId)}`);
-      const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.detail || "Nie udało się przeanalizować działki.");
-      }
-
-      renderMap(data);
-      renderResults(data);
+      await streamAnalysis(terytId);
       if (currentCandidates.length > 1) {
         renderSwitcherBar(terytId);
       }
@@ -668,6 +753,13 @@
     return `<div class="card${cls}"${idAttr}><h3>${title}</h3><p>${escapeHTML(text)}</p></div>`;
   }
 
+  // Placeholder karty dla sekcji, której dane jeszcze nie dotarły ze
+  // strumienia SSE (patrz streamAnalysis/renderResults) — dodane 2026-09-04.
+  function loadingCardHTML(title, id) {
+    const idAttr = id ? ` id="${id}"` : "";
+    return `<div class="card muted"${idAttr}><h3>${title}</h3><p class="disclaimer">Sprawdzam…</p></div>`;
+  }
+
   function escapeHTML(str) {
     const div = document.createElement("div");
     div.textContent = str;
@@ -698,7 +790,13 @@
     return `<table class="data-table">${body}</table>`;
   }
 
-  function renderResults(data) {
+  function renderResults(data, pending) {
+    // `pending` — Set kluczy sekcji, których jeszcze NIE ma w `data`
+    // (patrz streamAnalysis) — pusty/nieprzekazany dla pełnego,
+    // niestrumieniowego wyniku. Każda karta niżej sama sprawdza, czy jej
+    // sekcja(-e) są nadal w `pending`, i renderuje loadingCardHTML()
+    // zamiast prawdziwej treści, dopóki dane nie dotrą.
+    pending = pending || new Set();
     const p = data.parcel;
     let html = "";
 
@@ -713,7 +811,21 @@
     // Klaudia pokazała realny wygląd darmowej oceny Działkopedii: zwarta
     // lista wierszy zamiast osobnych kart. Patrz services/verdict.py.
     const v = data.verdict;
-    if (v) {
+    if (!v) {
+      // Werdykt i lista kroków przed zakupem potrzebują WSZYSTKICH 12 sekcji
+      // naraz (patrz main.py's _compute_derived) — dopóki strumień SSE nie
+      // dojdzie do zdarzenia "done", pokaż tylko postęp, nie pusty/mylący
+      // werdykt. Szczegółowe karty sekcji niżej wypełniają się na bieżąco
+      // niezależnie od tego.
+      const doneCount = SECTION_KEYS.length - pending.size;
+      html += `
+        <div class="verdict-card">
+          <div class="verdict-body">
+            <p class="verdict-label">Sprawdzam działkę… (${doneCount}/${SECTION_KEYS.length})</p>
+            <p class="verdict-disclaimer">Wynik i lista kroków przed zakupem pojawią się, gdy wszystkie sekcje zostaną sprawdzone — szczegóły poszczególnych sekcji pojawiają się poniżej na bieżąco.</p>
+          </div>
+        </div>`;
+    } else {
       const levelLabel = { dobra: "Dobra", do_sprawdzenia: "Do sprawdzenia", wysokie_ryzyko: "Wysokie ryzyko" }[
         v.level
       ] || v.level;
@@ -818,6 +930,10 @@
     // Ewidencja gruntów i budynków
     const cad = data.cadastre;
     const bld = data.buildings;
+    let cardEgib;
+    if (pending.has("cadastre") || pending.has("buildings")) {
+      cardEgib = loadingCardHTML("Ewidencja gruntów i budynków");
+    } else {
     let egibInner = "";
     if (cad.status === "ok" && cad.table.length) {
       egibInner += tableHTML(cad.table);
@@ -853,12 +969,15 @@
       egibInner += `<p class="disclaimer">${escapeHTML(bld.message)}</p>`;
     }
     egibInner += dataAgeNote(bld);
-    const cardEgib = `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
+    cardEgib = `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
+    }
 
     // Zagrożenie osuwiskowe
     const ls = data.landslide;
     let cardLandslide;
-    if (ls.status === "ok") {
+    if (pending.has("landslide")) {
+      cardLandslide = loadingCardHTML("Zagrożenie osuwiskowe", "card-landslide");
+    } else if (ls.status === "ok") {
       const cats =
         ls.matched_categories && ls.matched_categories.length
           ? `<p class="disclaimer" style="color:inherit;opacity:.85;">Wykryte kategorie: ${escapeHTML(
@@ -876,6 +995,10 @@
 
     // Media / uzbrojenie terenu (GESUT) — chip grid
     const ut = data.utilities;
+    let cardUtilities;
+    if (pending.has("utilities")) {
+      cardUtilities = loadingCardHTML("Media / uzbrojenie terenu (GESUT)", "card-utilities");
+    } else {
     let utInner = "";
     if (ut.status === "ok") {
       utInner = `<p class="disclaimer" style="margin:0 0 8px;">Wykrywanie na podstawie obrazu mapy — czy w pobliżu działki narysowana jest linia danego typu.</p>`;
@@ -906,10 +1029,15 @@
       utInner = `<p>${escapeHTML(ut.message)}</p>`;
     }
     utInner += dataAgeNote(ut);
-    const cardUtilities = `<div class="card muted" id="card-utilities"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
+    cardUtilities = `<div class="card muted" id="card-utilities"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
+    }
 
     // Hydrologia i zagrożenie powodziowe
     const hy = data.hydrology;
+    let cardHydrology;
+    if (pending.has("flood_zone") || pending.has("waterlogging") || pending.has("waterways")) {
+      cardHydrology = loadingCardHTML("Hydrologia i zagrożenie powodziowe", "card-flood_zone");
+    } else {
     let hyInner = "";
     const fz = hy.flood_zone;
     if (fz.status === "ok") {
@@ -942,11 +1070,16 @@
       hyInner += `<p class="disclaimer">Brak cieków wodnych w promieniu 400 m.</p>`;
     }
     hyInner += dataAgeNote(ww);
-    const cardHydrology = `<div class="card muted" id="card-flood_zone"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
+    cardHydrology = `<div class="card muted" id="card-flood_zone"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
+    }
 
     // Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
     const pa = data.protected_areas;
     const ma = data.mining_areas;
+    let cardNature;
+    if (pending.has("protected_areas") || pending.has("mining_areas")) {
+      cardNature = loadingCardHTML("Obszary chronione i geologia", "card-protected_areas");
+    } else {
     let natInner = "";
     if (pa.status === "ok") {
       natInner += pa.areas.length
@@ -975,12 +1108,15 @@
       natInner += `<p class="disclaimer" style="margin-top:8px;">${escapeHTML(ma.message)}</p>`;
     }
     natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
-    const cardNature = `<div class="card muted" id="card-protected_areas"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
+    cardNature = `<div class="card muted" id="card-protected_areas"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
+    }
 
     // Jakość powietrza (GIOŚ) — dodane 2026-09-04
     const aq = data.air_quality;
     let cardAirQuality;
-    if (aq.status === "ok") {
+    if (pending.has("air_quality")) {
+      cardAirQuality = loadingCardHTML("Jakość powietrza", "card-air_quality");
+    } else if (aq.status === "ok") {
       const distTxt = aq.distance_m >= 1000 ? `${(aq.distance_m / 1000).toFixed(1)} km` : `${aq.distance_m} m`;
       cardAirQuality = `<div class="card muted" id="card-air_quality"><h3>Jakość powietrza</h3>
         <p>Najbliższa stacja GIOŚ: <strong>${escapeHTML(aq.station_name)}</strong> (${distTxt})</p>
@@ -994,6 +1130,10 @@
 
     // Odległość do najbliższej drogi gminnej
     const nr = data.nearest_road;
+    let cardRoad;
+    if (pending.has("nearest_road")) {
+      cardRoad = loadingCardHTML("Odległość do drogi gminnej", "card-nearest_road");
+    } else {
     let nrInner = "";
     if (nr.status === "ok" && nr.found === "yes") {
       const km = nr.distance_m >= 1000 ? `${(nr.distance_m / 1000).toFixed(2)} km` : `${nr.distance_m} m`;
@@ -1011,10 +1151,15 @@
     } else {
       nrInner = `<p>${escapeHTML(nr.message)}</p>`;
     }
-    const cardRoad = `<div class="card muted" id="card-nearest_road"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
+    cardRoad = `<div class="card muted" id="card-nearest_road"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
+    }
 
     // Plany zagospodarowania (MPZP), tabular
     const zon = data.zoning;
+    let cardZoning;
+    if (pending.has("zoning")) {
+      cardZoning = loadingCardHTML("Plany zagospodarowania", "card-zoning");
+    } else {
     let zonInner = "";
     if (zon.status === "ok") {
       if (zon.found === "yes") {
@@ -1040,7 +1185,8 @@
     } else {
       zonInner = `<p>${escapeHTML(zon.message)}</p>`;
     }
-    const cardZoning = `<div class="card muted" id="card-zoning"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
+    cardZoning = `<div class="card muted" id="card-zoning"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
+    }
 
     // Pozwolenia na budowę (GUNB/RWDZ)
     const cardPermits = `
@@ -1058,10 +1204,14 @@
         <a class="link-out-btn" href="${data.land_registry.ekw_link}" target="_blank" rel="noopener noreferrer">Otwórz przeglądarkę ksiąg wieczystych →</a>
       </div>`;
 
-    // Wycena statystyczna (land + buildings, split)
+    // Wycena statystyczna (land + buildings, split) — liczona dopiero w
+    // zdarzeniu "done" (patrz main.py's _compute_derived), więc czeka na
+    // wszystkie sekcje tak samo jak werdykt/lista kroków przed zakupem.
     const val = data.valuation;
     let cardValuation;
-    if (val.status === "ok") {
+    if (!val) {
+      cardValuation = loadingCardHTML("Wycena statystyczna");
+    } else if (val.status === "ok") {
       cardValuation = `
         <div class="card value-card">
           <p class="eyebrow">Szacunkowa wartość działki (grunt)</p>

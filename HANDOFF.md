@@ -31,9 +31,14 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
   (generyczny retry `_get_with_retry`, wyścig mirrorów Overpass, naprawa
   pustych komunikatów wyjątków `describe_exc`), `services/*.py` (jeden
   plik na sekcję) — patrz sekcja 3 „Struktura repo".
-- **Cache-aside w SQLite** (`services/cache.py`) dla 10 z 11 sekcji, z
-  osobnym TTL na sekcję (`config.py`, `TTL_*`) — **plan zagospodarowania
-  świadomie NIE jest cache'owany** (patrz TODO niżej, propozycja #2).
+- **Cache-aside w SQLite** (`services/cache.py`) dla WSZYSTKICH sekcji
+  wzbogacających dane, z osobnym TTL na sekcję (`config.py`, `TTL_*`) —
+  **plan zagospodarowania dołączony 2026-09-04** (`TTL_ZONING`, 7 dni,
+  krótszy niż reszta — patrz sekcja 3, „Trzy optymalizacje wydajności").
+  Identyfikacja działki (ULDK) świadomie wciąż NIE jest cache'owana.
+  **`_conn_lock` (threading.RLock)** serializuje cały dostęp do SQLite —
+  naprawione 2026-09-04 po realnym wyścigu wątków znalezionym przy
+  testowaniu trwałego klienta HTTP (patrz ta sama sekcja).
 - **Werdykt/checklista** (`services/verdict.py`, wzorowana na darmowym
   raporcie Działkopedii): score 0-100, poziom (dobra/do_sprawdzenia/
   wysokie_ryzyko), pełna lista wierszy — **4 poziomy**: `risk` (odejmuje
@@ -64,12 +69,22 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
 - **Overpass API**: wszystkie skonfigurowane mirrory odpytywane RÓWNOLEGLE
   (wyścig, `asyncio.wait FIRST_COMPLETED`), nie sekwencyjnie — blokada
   jednego mirroru już nie opóźnia sprawdzenia drugiego.
+- **Jeden trwały `httpx.AsyncClient`** (`main.py::_get_http_client()`) na
+  cały czas życia serwera (utworzony w `lifespan`, zamykany przy
+  shutdownie) zamiast nowego klienta przy KAŻDYM żądaniu — dodane
+  2026-09-04, patrz sekcja 3, „Trzy optymalizacje wydajności".
+- **`GET /api/analyze-stream`** — strumieniowa (Server-Sent Events)
+  alternatywa dla `/api/analyze`, używana teraz przez frontend „Analiza
+  działki": szybkie sekcje renderują się od razu, plan zagospodarowania i
+  werdykt/wycena/lista kroków (które i tak potrzebują wszystkich sekcji
+  naraz) dochodzą na końcu. `/api/analyze` nadal istnieje bez zmian —
+  patrz sekcja 3.
 - Jakość powietrza (GIOŚ), UI checklisty jako zwarty spis treści z linkami
   do kart szczegółów (nie duplikacja tekstu), PWA (manifest + service
-  worker, network-first), CI (GitHub Actions), 110 testów pytest
+  worker, network-first), CI (GitHub Actions), 112 testów pytest
   (`tests/test_pure_logic.py`, logika bez sieci — sieć rządowa jest
   całkowicie niedostępna z tego środowiska, patrz sekcja 8).
-- Cache-busting: `static/app.js?v=31`, `CACHE_NAME` service workera `v23`
+- Cache-busting: `static/app.js?v=32`, `CACHE_NAME` service workera `v24`
   — **podnoś oba przy KAŻDEJ zmianie `app.js`**.
 
 **Wyszukiwarka Działek (`wyszukiwarka-dzialek`) — statyczny frontend:**
@@ -105,16 +120,14 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
 3. **WSTRZYMANE: zbadać skalę Bortle (zanieczyszczenie światłem/hałas)**,
    jak pokazuje Działkopedia. Jw. — tylko research, dopóki Klaudia nie
    poprosi o wdrożenie.
-4. **Propozycje optymalizacji wydajności** (appka jest zbyt wolna przy
-   pełnej analizie) — zgłoszone Klaudii 2026-09-04, **żadna NIE jest
-   wdrożona**, czekają na jej wybór:
-   - (a) Jeden trwały `httpx.AsyncClient` na cały czas życia serwera
-     zamiast nowego przy każdym `/api/analyze` (mniej narzutu TCP/TLS).
-   - (b) Cache dla planu zagospodarowania (jedyna z 11 sekcji bez cache,
-     a zarazem najwolniejsza/najmniej niezawodna).
-   - (c) Strumieniowanie wyników (np. SSE) — szybkie sekcje pokazują się
-     od razu, plan zagospodarowania dochodzi jako ostatni, zamiast appka
-     czekała na WSZYSTKIE 11 sekcji naraz.
+4. **WYKONANE 2026-09-04: wszystkie 3 propozycje optymalizacji
+   wydajności** zgłoszone Klaudii tego samego dnia — (a) trwały
+   `httpx.AsyncClient`, (b) cache dla planu zagospodarowania, (c)
+   strumieniowanie SSE. Szczegóły i dwa realne błędy współbieżności
+   znalezione przy okazji — patrz sekcja 3, „Trzy optymalizacje
+   wydajności". **Nadal otwarte, nie wdrożone w tej rundzie**: przycisk
+   „odśwież teraz" (pomijanie cache'u na żądanie) i dysk trwały na Render —
+   patrz ta sama sekcja.
 5. **Działka testowa „Korbielów 3917/5"** (`241704_2.0002.3917/5`, gmina
    Jeleśnia, pow. żywiecki) była użyta na żywo przez Klaudię 2026-09-04
    (m.in. do zgłoszenia błędu ConnectTimeout dla MPZP), ale NIE została
@@ -310,8 +323,14 @@ ekranu głównego") może nadal pokazywać starą wersję UI, bo:
 - `GET /api/resolve-address?query=...` — szukanie po adresie (ulica+numer).
   Geokoduje przez oficjalne API GUGiK, potem `GetParcelByXY`.
 - `GET /api/analyze?parcel_id=...` — główny endpoint, zwraca pełną analizę
-  (ewidencja, budynki, osuwiska, media, hydrologia, plany, pozwolenia,
-  wycena, linki do map, `nearest_road`).
+  w jednym JSON-ie (ewidencja, budynki, osuwiska, media, hydrologia, plany,
+  pozwolenia, wycena, linki do map, `nearest_road`). Bez zmian od 2026-09-04
+  poza wewnętrznym refaktorem (dzieli `_section_specs()`/`_compute_derived()`
+  z endpointem niżej) — kontrakt/odpowiedź identyczne jak wcześniej.
+- `GET /api/analyze-stream?parcel_id=...` — **dodane 2026-09-04**,
+  strumieniowa (Server-Sent Events) alternatywa dla powyższego, której teraz
+  używa frontend „Analiza działki" (patrz sekcja 3, „Trzy optymalizacje
+  wydajności" — pełny opis formatu zdarzeń `meta`/`section`/`done`).
 - `GET /api/search-by-parcel-size?place=&area_m2=&width_m=&length_m=&dims_as_maximum=`
   — „Szukaj działki": jeden uniwersalny endpoint, dowolna kombinacja
   kryteriów (patrz sekcja 3.3).
@@ -656,7 +675,12 @@ kolejność wdrożenia, która została zrealizowana w całości w jednym PR:
 „odśwież teraz", cache dla planu zagospodarowania (7 dni, dopiero po
 przycisku odświeżenia) i dla identyfikacji ULDK (7 dni), decyzja o dysku
 trwałym na Render, progresywne renderowanie wyniku. Wszystko to jest w
-pełnej wersji raportu-artefaktu „Plan Pamięci Podręcznej".
+pełnej wersji raportu-artefaktu „Plan Pamięci Podręcznej". **Aktualizacja
+2026-09-04 (później tego samego dnia)**: cache dla planu zagospodarowania
+i progresywne renderowanie wyniku zostały jednak wdrożone (razem z trwałym
+`httpx.AsyncClient`, na żądanie Klaudii) — patrz „Trzy optymalizacje
+wydajności" niżej. Przycisk „odśwież teraz", cache dla identyfikacji ULDK i
+dysk trwały na Render NADAL nie są zrobione.
 
 11 nowych testów pytest dla `services/cache.py` (fikstura `cache_db` z
 `tmp_path` + `monkeypatch.setattr(cache, "CACHE_DB_PATH", ...)` +
@@ -1423,6 +1447,186 @@ Istniejący test dla sekcji, która się nie udała, przemianowany i
 rozszerzony (`test_build_verdict_failed_section_is_incomplete_and_gets_unknown_row`)
 — teraz potwierdza zarówno brak odjęcia punktów, jak i obecność nowego
 wiersza `tier: "unknown"`. Łącznie 110 testów pytest.
+
+### Trzy optymalizacje wydajności (a/b/c) + dwa realne błędy współbieżności znalezione przy okazji — dodane 2026-09-04
+
+Klaudia poprosiła o wdrożenie wszystkich 3 propozycji z poprzedniego punktu
+TODO naraz: (a) jeden trwały `httpx.AsyncClient`, (b) cache dla planu
+zagospodarowania, (c) strumieniowanie wyników (SSE).
+
+**(a) Trwały `httpx.AsyncClient` (`main.py`).** Każda z 4 tras HTTP otwierała
+dotąd własny `async with httpx.AsyncClient(...) as client:` — nowe
+połączenie TCP+TLS do KAŻDEGO z kilkunastu zewnętrznych hostów rządowych/OSM
+przy KAŻDYM żądaniu, zamiast ponownego użycia już otwartych połączeń
+keep-alive z puli httpx. **Naprawa**: `main.py::_get_http_client()` — leniwie
+tworzony, modułowy singleton, tworzony też przez FastAPI `lifespan` (nowy
+`_lifespan()`, zamyka klienta przy shutdownie) i leniwie w razie potrzeby
+(dla wywołań route'ów bezpośrednio z testów, z pominięciem `lifespan` — np.
+istniejący `tests/test_pure_logic.py::test_resolve_parcel_times_out_...`,
+który woła `main.resolve_parcel()` wprost). `httpx.AsyncClient` jest
+udokumentowany jako bezpieczny do współbieżnego użycia przez wiele żądań
+naraz, więc to nie jest obejście, tylko właściwe rozwiązanie. Wszystkie 4
+trasy (`/api/resolve`, `/api/resolve-address`, `/api/search-by-parcel-size`,
+`/api/analyze`) zaktualizowane; ujednolicony User-Agent
+(`"AnalizaDzialkiGIS/2.0"` — wcześniej `/api/analyze` miał osobny, niespójny
+`"AnalizaDzialki/2.0"`, bez `GIS`, czysty przeoczony detal sprzed podziału
+`main.py` na moduły).
+
+**(b) Cache dla planu zagospodarowania.** Plan zagospodarowania był jedyną
+z sekcji wzbogacających świadomie NIE cache'owaną (patrz „Pamięć podręczna"
+wyżej) — do czasu, aż zaistniałby widoczny w UI mechanizm „dane z: [data]".
+Ten mechanizm (`fetched_at`/`dataAgeNote()`) już istniał dla WSZYSTKICH
+innych cache'owanych sekcji od tamtego dnia, więc podłączenie zoningu do
+DOKŁADNIE TEGO SAMEGO `cache.get_or_fetch()` dało mu tę samą przejrzystość
+za darmo — bez tego kryterium blokującego nie było już powodu czekać.
+Nowy `TTL_ZONING = 7 dni` (`config.py`) — świadomie krótszy niż 30-180 dni
+reszty usług, bo to jedyna sekcja z realną wagą decyzyjną (gmina może
+uchwalić nowy plan w trakcie czyjejś decyzji o zakupie). `cache.get_or_fetch`
+cache'uje WYŁĄCZNIE `status: "ok"` — `"partial"` (szczegóły MPZP nie zdążyły
+dojść, ale plan widoczny) i `"error"` nigdy się nie zamrażają, dokładnie jak
+dla reszty usług. Przycisk „odśwież teraz" (ręczne pominięcie cache'u) i
+cache dla identyfikacji ULDK (7 dni) NADAL nie są zrobione — patrz TODO w
+sekcji 0.
+
+**(c) Strumieniowanie wyników — nowy `GET /api/analyze-stream` (SSE).**
+`/api/analyze` (bez zmian, nadal działa dokładnie jak wcześniej) czekał na
+`asyncio.gather()` WSZYSTKICH 12 gałęzi analizy naraz, w tym najwolniejszą
+i najmniej niezawodną (plan zagospodarowania) — appka pokazywała pusty
+ekran ładowania, dopóki nawet najszybsza sekcja (np. osuwiska, ~1-2s) nie
+mogła się wyświetlić. Nowy endpoint strumieniuje Server-Sent Events:
+- `event: meta` — tożsamość działki, geometria, centroid, powierzchnia,
+  statyczne linki (`permits`/`land_registry`/`map_layers`) — nic tu nie
+  wymaga sieci poza już wykonanym lookupem ULDK, więc to zawsze pierwszy
+  fragment, renderowany natychmiast (mapa + linia „teryt-echo").
+- `event: section` — `{"key": <jedna z 12 nazw>, "value": <wynik sekcji>}`,
+  po jednym na gałąź, w kolejności w jakiej faktycznie się kończą
+  (`asyncio.as_completed`, nie `asyncio.gather`).
+- `event: done` — `{"verdict", "due_diligence", "valuation"}` — te trzy pola
+  potrzebują WSZYSTKICH 12 wyników naraz (patrz `_compute_derived()`), więc
+  fizycznie nie mogą przyjść wcześniej niż na końcu.
+
+Refaktor w `main.py`: `_section_specs()` (buduje listę 12 par
+nazwa+awaitable) i `_compute_derived()` (werdykt/lista kroków/wycena z
+kompletu wyników) są teraz WSPÓLNE dla `/api/analyze`
+(`asyncio.gather`) i `/api/analyze-stream` (`asyncio.as_completed` +
+strumieniowanie) — żeby dwie kopie tej samej logiki (12 usług, TTL, kolejność
+pól) nie mogły się po cichu rozjechać. Podobnie `_analyze_meta()` (parcel/
+geometria/linki) i `_resolve_parcel_geometry()` (lookup ULDK + geometria
+pochodna) są dzielone przez oba endpointy.
+
+**Ważny szczegół implementacyjny**: `_resolve_parcel_geometry()` (lookup
+ULDK, może rzucić `HTTPException` 404/502) jest wywoływane PRZED
+utworzeniem `StreamingResponse` — raz nagłówki odpowiedzi 200 zostaną
+wysłane (co Starlette robi zaraz po rozpoczęciu iteracji po generatorze),
+nie da się już zmienić kodu statusu na normalny błąd JSON. Dzięki temu
+`/api/analyze-stream?parcel_id=zły_numer` nadal zwraca czysty `404` z
+`detail`, dokładnie jak `/api/analyze` — nie „udaje" sukcesu SSE dla
+nieistniejącej działki. Każda POJEDYNCZA sekcja natomiast MOŻE się nie
+udać już PO rozpoczęciu strumienia (np. nieoczekiwany wyjątek zamiast
+zwróconego `{"status": "error", ...}`, którego usługi z zasady same nie
+powinny rzucać, ale to ostatnia linia obrony) — `_named()` łapie to i
+zamienia w wiersz `{"status": "error", "message": "Wewnętrzny błąd sekcji: ..."}`
+zamiast wywalić cały strumień z 500 (nie da się już wtedy zwrócić błędu
+HTTP, nagłówki 200 już poszły). Rozłączenie w trakcie strumienia (albo
+inne przedwczesne wyjście z generatora) anuluje wszystkie jeszcze
+niedokończone z 12 zadań `asyncio.create_task`/`asyncio.ensure_future`,
+zamiast zostawić je samopas.
+
+**Frontend (`static/app.js`)**: `analyzeTerytId()` woła teraz nowy
+`streamAnalysis(terytId)` zamiast pojedynczego `fetch('/api/analyze?...')`.
+Świadomie `fetch()` + `resp.body.getReader()`, NIE natywny `EventSource` —
+`EventSource` nie daje dostępu do treści/kodu odpowiedzi błędu, a appka
+zawsze pokazywała dokładny polski komunikat backendu (`data.detail`) przy
+błędzie 400/404, co dla nieistniejącej działki musiało zostać zachowane.
+Ręczny parser SSE dzieli strumień na ramki po `\n\n` (obsługuje ramki
+podzielone między kolejne odczyty `reader.read()`, buforując resztki).
+`renderResults(data, pending)` dostał drugi, opcjonalny parametr —
+`pending`, `Set` kluczy sekcji, których jeszcze nie ma w `data`. Każda karta
+sekcji (`cardEgib`, `cardLandslide`, `cardUtilities`, `cardHydrology`,
+`cardNature`, `cardAirQuality`, `cardRoad`, `cardZoning`) sprawdza teraz
+najpierw `pending.has(...)` i renderuje `loadingCardHTML()` („Sprawdzam…")
+zamiast prawdziwej treści, dopóki dane nie dotrą — logika budowania
+KAŻDEJ karty z prawdziwych danych jest niezmieniona, tylko owinięta w
+`if/else`. Werdykt/checklista/wycena (`v`/`dd`/`val`) czekają na zdarzenie
+`"done"` — dopóki go nie ma, karta werdyktu pokazuje pasek postępu
+(„Sprawdzam działkę… (N/12)"), bez zwodniczego pustego/częściowego wyniku.
+`renderMap()` woła się raz, przy zdarzeniu `"meta"` — mapa i linia
+tożsamości działki pojawiają się natychmiast, zanim jakakolwiek sekcja
+zdąży się policzyć.
+
+**Dwa realne błędy współbieżności znalezione przy weryfikacji (nie
+związane z (a)/(b)/(c) wprost, ale ujawnione przez nie) —
+`services/cache.py`.** Zweryfikowane przez Starlette `TestClient` +
+zamockowane usługi (bo sieć rządowa jest niedostępna z tego środowiska —
+patrz sekcja 8): pierwsze prawdziwe wywołanie `/api/analyze` na świeżym
+`cache.db` (czyli DOKŁADNIE stan po KAŻDYM deployu na Render, bo cache
+resetuje się przy restarcie kontenera — patrz „Pamięć podręczna" wyżej)
+uruchamia 12 współbieżnych `cache.get_or_fetch()` naraz przez
+`asyncio.gather`/`asyncio.as_completed`. To ujawniło:
+1. **Wyścig przy tworzeniu połączenia** — kilka wątków roboczych
+   (`asyncio.to_thread`) mogło jednocześnie zobaczyć `_conn is None` i
+   zacząć czytać z bazy, zanim `CREATE TABLE` innego wątku zdążyło się
+   zatwierdzić (`sqlite3.OperationalError: no such table: cache_entries`).
+2. **Wyścig przy współdzielonym połączeniu** — `check_same_thread=False`
+   znosi TYLKO ograniczenie „ten sam wątek", nie czyni jednego obiektu
+   `sqlite3.Connection` bezpiecznym do naprawdę współbieżnego użycia z
+   wielu wątków; dwa wątki wołające `conn.execute()`/`conn.commit()` w tym
+   samym momencie na tym samym połączeniu ścigały się o własne, niejawne
+   transakcje (`sqlite3.OperationalError: cannot commit - no transaction
+   is active`).
+
+**Naprawa**: jeden `threading.RLock` (`_conn_lock`, RLock nie zwykły Lock,
+bo `_read_row`/`_write_row` trzymają go i wołają `_get_conn()`, który
+próbuje go wziąć ponownie na tym samym wątku — zwykły `Lock` by się
+zakleszczył) trzymany przez CAŁY czas trwania tworzenia połączenia, odczytu
+i zapisu — serializuje cały dostęp do SQLite w tym module. Pojedyncza
+operacja SQLite trwa mikrosekundy, więc to nie zjada współbieżności, którą
+`asyncio.gather`/`asyncio.to_thread` dają reszcie `/api/analyze` (prawdziwe
+zapytania sieciowe biegną poza tym lockiem). Nowy test regresyjny
+(`test_get_or_fetch_concurrent_first_touch_does_not_race`) uruchamia 24
+współbieżne pierwsze dotknięcia cache'u na świeżym `cache.db` — bez locka
+rzucał którymś z dwóch powyższych wyjątków, z lockiem przechodzi.
+
+**Testy**: nowy `test_get_or_fetch_concurrent_first_touch_does_not_race`
+(opisany wyżej) i
+`test_analyze_and_analyze_stream_agree_on_sections_and_derived_fields` —
+end-to-end przez `fastapi.testclient.TestClient` (realne uruchomienie
+`lifespan` + routing FastAPI, z zamockowanymi funkcjami usług), sprawdzający
+że `/api/analyze` i zebrany-z-SSE `/api/analyze-stream` zwracają dokładnie
+te same 12 wyników sekcji oraz to samo `verdict`/`due_diligence`/`valuation`
+(pomijając `cached`/`fetched_at`, które różnią się między dwoma kolejnymi
+wywołaniami przez sam fakt trafienia w cache przy drugim). Razem 112 testów
+pytest (było 110).
+
+**Zweryfikowane wizualnie i funkcjonalnie w Playwright** (ten sam wzorzec co
+poprzednie rundy — lokalny `npm install leaflet`, bo `unpkg.com` jest
+zablokowane przez proxy tego środowiska identycznie jak domeny rządowe) —
+ad-hoc serwer Node serwujący `static/` z podmienionym źródłem Leaflet i
+własnym, kontrolowanym `/api/analyze-stream` (12 sekcji z opóźnieniem
+120ms między każdą, zoning celowo ostatni). Potwierdzone na zrzutach
+ekranu: ~500ms po kliknięciu „Sprawdź działkę" mapa i linia tożsamości są
+już widoczne, karta „Plany zagospodarowania" pokazuje „Sprawdzam…", karta
+„Zagrożenie osuwiskowe" (jedna z pierwszych 4 gotowych sekcji) już pokazuje
+prawdziwą treść, a werdykt pokazuje pasek postępu „Sprawdzam działkę…
+(4/12)"; po dojściu zdarzenia `"done"` werdykt pokazuje finalny wynik
+(„90 · Dobra"), a karta zoningu pokazuje prawdziwą treść. Zero błędów JS w
+konsoli poza oczekiwanymi, niezamockowanymi zapytaniami o kafelki
+mapy/warstwy WMS (blokowane przez proxy tej piaskownicy, nie błąd appki).
+
+**Nie zweryfikowane na żywo**: rzeczywiste przyspieszenie na produkcji
+(Render) — logowanie czasu z `_timed()` (dodane wcześniej, patrz „Pamięć
+podręczna") to jedyny sposób to zmierzyć stąd, tak jak zawsze w tym
+środowisku (sieć rządowa niedostępna — patrz sekcja 8). Także: czy proxy
+Render bufory całą odpowiedź `StreamingResponse` zamiast przepuszczać ją
+fragmentami na bieżąco — jeśli tak, strumieniowanie nadal zadziała
+POPRAWNIE (frontend dostanie te same dane), tylko straci część zysku w
+postrzeganej szybkości (wszystko przyjdzie naraz na końcu zamiast
+progresywnie) — nie regresja, tylko brak pełnego zysku z (c) w tym
+konkretnym scenariuszu; dodany nagłówek `X-Accel-Buffering: no` to
+standardowa, ale niepotwierdzona z tego środowiska, próba wyłączenia
+takiego buforowania po stronie proxy.
+
+Cache-bust: `app.js?v=32`, `CACHE_NAME` service workera → `v24`.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

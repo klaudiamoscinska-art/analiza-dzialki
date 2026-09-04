@@ -60,22 +60,25 @@ retry/fallback helpers in http_utils.py. See HANDOFF.md for the full
 per-service notes (what's confirmed live, known dead ends, etc).
 """
 import asyncio
+import json
 import time
-from typing import Any, Awaitable, Optional
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Awaitable, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
 
 from config import (
     HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TIMEOUT_RESOLVE_BUDGET, TTL_AIR_QUALITY, TTL_BUILDINGS,
     TTL_CADASTRE, TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS, TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS,
-    TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, logger,
+    TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, TTL_ZONING, logger,
 )
 from geo_utils import geod, to_2180
+from http_utils import describe_exc
 from services import cache
 from services.air_quality import get_air_quality
 from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
@@ -112,7 +115,46 @@ async def _timed(label: str, awaitable: Awaitable[dict[str, Any]]) -> dict[str, 
     finally:
         logger.info("analyze: %s zajęło %.2fs", label, time.monotonic() - start)
 
-app = FastAPI(title="Analiza Działki GIS")
+
+# --------------------------------------------------------------------------
+# Shared httpx.AsyncClient for the whole server lifetime — added 2026-09-04,
+# performance optimization (a) from HANDOFF.md's "Propozycje optymalizacji
+# wydajności". Every route used to open `async with httpx.AsyncClient(...)`
+# per request, paying for a fresh TCP+TLS handshake to every one of the
+# dozen external government/OSM hosts on EVERY /api/analyze call instead of
+# reusing already-open keep-alive connections via httpx's own connection
+# pool. httpx.AsyncClient is documented as safe for concurrent use by many
+# requests at once, so one long-lived instance is the correct fix, not a
+# workaround.
+#
+# Lazily created (not only inside the lifespan hook below) so it also works
+# when route functions are called directly without going through FastAPI's
+# startup event — e.g. tests/test_pure_logic.py calls main.resolve_parcel()
+# directly, which never triggers `lifespan`.
+# --------------------------------------------------------------------------
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"})
+    return _http_client
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _get_http_client()
+    try:
+        yield
+    finally:
+        global _http_client
+        if _http_client is not None:
+            await _http_client.aclose()
+            _http_client = None
+
+
+app = FastAPI(title="Analiza Działki GIS", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
@@ -176,14 +218,14 @@ async def search_by_parcel_size(
             "Sam jeden wymiar (bez powierzchni) to za mało — podaj też powierzchnię, albo drugi wymiar.",
         )
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-        result = await search_parcels_universal(
-            client, place,
-            target_area_m2=area_m2 if have_area else None,
-            target_width_m=width_m if have_width else None,
-            target_length_m=length_m if have_length else None,
-            dims_as_maximum=dims_as_maximum,
-        )
+    client = _get_http_client()
+    result = await search_parcels_universal(
+        client, place,
+        target_area_m2=area_m2 if have_area else None,
+        target_width_m=width_m if have_width else None,
+        target_length_m=length_m if have_length else None,
+        dims_as_maximum=dims_as_maximum,
+    )
 
     if result["status"] != "ok":
         raise HTTPException(502, result["message"])
@@ -202,8 +244,8 @@ async def resolve_address(query: str = Query(default="")):
     if len(query) < 5:
         raise HTTPException(400, "Podaj adres (miejscowość, ulica i numer).")
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-        candidates = await resolve_address_to_parcels(client, query)
+    client = _get_http_client()
+    candidates = await resolve_address_to_parcels(client, query)
 
     if not candidates:
         raise HTTPException(
@@ -286,37 +328,37 @@ async def resolve_parcel(query: str = Query(default="")):
             )
             return [h for r in wfs_scan_results for h in r]
 
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialkiGIS/2.0"}) as client:
-            candidates = await uldk_search_candidates(client, query)
+        client = _get_http_client()
+        candidates = await uldk_search_candidates(client, query)
 
-            if not candidates and query.count(".") >= 2 and " " not in query:
-                # Wygląda jak pełny identyfikator TERYT (gmina.obręb.numer) —
-                # spróbuj bardziej bezpośredniego zapytania GetParcelById
-                # zamiast tylko GetParcelByIdOrNr powyżej. Potwierdzone na żywo
-                # 2026-09-03: prawdziwa, poprawna działka (zweryfikowana przez
-                # polska.e-mapa.net) nie została znaleziona przez ByIdOrNr —
-                # patrz find_parcel_by_id_direct.
-                direct = await find_parcel_by_id_direct(client, query)
-                if direct:
-                    candidates = [direct]
+        if not candidates and query.count(".") >= 2 and " " not in query:
+            # Wygląda jak pełny identyfikator TERYT (gmina.obręb.numer) —
+            # spróbuj bardziej bezpośredniego zapytania GetParcelById
+            # zamiast tylko GetParcelByIdOrNr powyżej. Potwierdzone na żywo
+            # 2026-09-03: prawdziwa, poprawna działka (zweryfikowana przez
+            # polska.e-mapa.net) nie została znaleziona przez ByIdOrNr —
+            # patrz find_parcel_by_id_direct.
+            direct = await find_parcel_by_id_direct(client, query)
+            if direct:
+                candidates = [direct]
 
-            if not candidates and " " in query:
-                name_part, parcel_part = query.rsplit(" ", 1)
-                name_part = name_part.strip()
-                if name_part and parcel_part:
-                    gminas = await geocode_gmina_candidates(client, name_part)
-                    candidates.extend(await scan_gminas_both_ways(gminas, parcel_part))
+        if not candidates and " " in query:
+            name_part, parcel_part = query.rsplit(" ", 1)
+            name_part = name_part.strip()
+            if name_part and parcel_part:
+                gminas = await geocode_gmina_candidates(client, name_part)
+                candidates.extend(await scan_gminas_both_ways(gminas, parcel_part))
 
-                    if not candidates:
-                        candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
+                if not candidates:
+                    candidates = await try_numbered_precinct_variants(client, name_part, parcel_part)
 
-                    if not candidates:
-                        # Etap 5: "Name" mogła być powiatem, nie gminą (np.
-                        # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
-                        # tym powiecie, tym samym dwuetapowym (ID + WFS)
-                        # skanem. Patrz docstring wyżej i HANDOFF.md.
-                        powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
-                        candidates.extend(await scan_gminas_both_ways(powiat_gminas, parcel_part))
+                if not candidates:
+                    # Etap 5: "Name" mogła być powiatem, nie gminą (np.
+                    # "suski 636/3") — przeszukaj obręby WSZYSTKICH gmin w
+                    # tym powiecie, tym samym dwuetapowym (ID + WFS)
+                    # skanem. Patrz docstring wyżej i HANDOFF.md.
+                    powiat_gminas = await geocode_powiat_gmina_prefixes(client, name_part)
+                    candidates.extend(await scan_gminas_both_ways(powiat_gminas, parcel_part))
 
         return candidates
 
@@ -350,65 +392,61 @@ async def resolve_parcel(query: str = Query(default="")):
     return {"resolved": False, "candidates": candidates}
 
 
-@app.get("/api/analyze")
-async def analyze(parcel_id: str = Query(default="")):
-    parcel_id = parcel_id.strip()
-    if len(parcel_id) < 3:
-        raise HTTPException(400, "Podaj poprawny numer działki (identyfikator TERYT).")
+def _section_specs(
+    client: httpx.AsyncClient, teryt_id: str, geometry, cx2180: float, cy2180: float, centroid,
+) -> list[tuple[str, Awaitable[dict[str, Any]]]]:
+    """The 12 concurrent /api/analyze branches, as (name, awaitable) pairs —
+    factored out (2026-09-04, performance optimization (c) — see HANDOFF.md)
+    so /api/analyze (asyncio.gather, all-at-once) and /api/analyze-stream
+    (asyncio.as_completed, progressive SSE) share the exact same list
+    instead of two copies that could silently drift apart (different TTL, a
+    service added to one but not the other, etc)."""
+    return [
+        ("landslide", cache.get_or_fetch(
+            "landslide", teryt_id, TTL_LANDSLIDE, lambda: check_landslide(client, geometry))),
+        ("utilities", cache.get_or_fetch(
+            "utilities", teryt_id, TTL_UTILITIES, lambda: check_utilities(client, cx2180, cy2180))),
+        ("cadastre", cache.get_or_fetch(
+            "cadastre", teryt_id, TTL_CADASTRE, lambda: get_cadastre_basic(client, cx2180, cy2180))),
+        # Plan zagospodarowania — cache'owany od 2026-09-04 (optymalizacja
+        # (b), krótki 7-dniowy TTL, patrz TTL_ZONING w config.py). Identyfikacja
+        # działki (ULDK) świadomie wciąż NIE jest cache'owana.
+        ("zoning", cache.get_or_fetch(
+            "zoning", teryt_id, TTL_ZONING, lambda: get_zoning(client, cx2180, cy2180))),
+        ("buildings", cache.get_or_fetch(
+            "buildings", teryt_id, TTL_BUILDINGS, lambda: get_buildings_on_parcel(client, geometry))),
+        ("waterways", cache.get_or_fetch(
+            "waterways", teryt_id, TTL_WATERWAYS, lambda: get_waterways(client, geometry))),
+        ("flood_zone", cache.get_or_fetch(
+            "flood_zone", teryt_id, TTL_FLOOD_ZONE, lambda: get_flood_zone(client, cx2180, cy2180))),
+        ("waterlogging", cache.get_or_fetch(
+            "waterlogging", teryt_id, TTL_WATERLOGGING, lambda: get_waterlogging_risk(client, geometry))),
+        ("nearest_road", cache.get_or_fetch(
+            "nearest_road", teryt_id, TTL_NEAREST_ROAD, lambda: get_nearest_municipal_road(client, geometry))),
+        ("protected_areas", cache.get_or_fetch(
+            "protected_areas", teryt_id, TTL_PROTECTED_AREAS, lambda: get_protected_areas(client, cx2180, cy2180))),
+        ("mining_areas", cache.get_or_fetch(
+            "mining_areas", teryt_id, TTL_MINING_AREAS, lambda: check_mining_areas(client, geometry))),
+        # TTL krótki (1h) — w przeciwieństwie do reszty tych usług,
+        # odczyty GIOŚ faktycznie zmieniają się co godzinę.
+        ("air_quality", cache.get_or_fetch(
+            "air_quality", teryt_id, TTL_AIR_QUALITY, lambda: get_air_quality(client, centroid.x, centroid.y))),
+    ]
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers={"User-Agent": "AnalizaDzialki/2.0"}) as client:
-        parcel = await uldk_get_parcel(client, parcel_id)
-        geometry = parcel["geometry"]
 
-        centroid = geometry.centroid
-        cx2180, cy2180 = to_2180.transform(centroid.x, centroid.y)
-
-        area_m2, _perimeter_m = geod.geometry_area_perimeter(geometry)
-        area_m2 = abs(area_m2)
-
-        teryt_id = parcel["teryt_id"]
-        results = await asyncio.gather(
-            _timed("landslide", cache.get_or_fetch(
-                "landslide", teryt_id, TTL_LANDSLIDE, lambda: check_landslide(client, geometry))),
-            _timed("utilities", cache.get_or_fetch(
-                "utilities", teryt_id, TTL_UTILITIES, lambda: check_utilities(client, cx2180, cy2180))),
-            _timed("cadastre", cache.get_or_fetch(
-                "cadastre", teryt_id, TTL_CADASTRE, lambda: get_cadastre_basic(client, cx2180, cy2180))),
-            # Plan zagospodarowania i identyfikacja działki (ULDK) świadomie
-            # NIE są cache'owane — patrz TTL_* w config.py i HANDOFF.md.
-            _timed("zoning", get_zoning(client, cx2180, cy2180)),
-            _timed("buildings", cache.get_or_fetch(
-                "buildings", teryt_id, TTL_BUILDINGS, lambda: get_buildings_on_parcel(client, geometry))),
-            _timed("waterways", cache.get_or_fetch(
-                "waterways", teryt_id, TTL_WATERWAYS, lambda: get_waterways(client, geometry))),
-            _timed("flood_zone", cache.get_or_fetch(
-                "flood_zone", teryt_id, TTL_FLOOD_ZONE, lambda: get_flood_zone(client, cx2180, cy2180))),
-            _timed("waterlogging", cache.get_or_fetch(
-                "waterlogging", teryt_id, TTL_WATERLOGGING, lambda: get_waterlogging_risk(client, geometry))),
-            _timed("nearest_road", cache.get_or_fetch(
-                "nearest_road", teryt_id, TTL_NEAREST_ROAD, lambda: get_nearest_municipal_road(client, geometry))),
-            _timed("protected_areas", cache.get_or_fetch(
-                "protected_areas", teryt_id, TTL_PROTECTED_AREAS, lambda: get_protected_areas(client, cx2180, cy2180))),
-            _timed("mining_areas", cache.get_or_fetch(
-                "mining_areas", teryt_id, TTL_MINING_AREAS, lambda: check_mining_areas(client, geometry))),
-            # TTL krótki (1h) — w przeciwieństwie do reszty tych usług,
-            # odczyty GIOŚ faktycznie zmieniają się co godzinę.
-            _timed("air_quality", cache.get_or_fetch(
-                "air_quality", teryt_id, TTL_AIR_QUALITY, lambda: get_air_quality(client, centroid.x, centroid.y))),
-        )
-    (landslide, utilities, cadastre, zoning, buildings,
-     waterways, flood_zone, waterlogging, nearest_road,
-     protected_areas, mining_areas, air_quality) = results
-
+def _compute_derived(parcel: dict[str, Any], area_m2: float, results: dict[str, Any]) -> dict[str, Any]:
+    """Given parcel identity + area + all 12 section results, computes the
+    fields that need MULTIPLE sections at once (valuation, verdict,
+    due-diligence checklist) — factored out (2026-09-04) so /api/analyze and
+    /api/analyze-stream's final step share one implementation instead of two
+    copies of this logic that could drift apart."""
+    buildings = results["buildings"]
     building_list = buildings.get("buildings", []) if buildings.get("status") == "ok" else []
     valuation = estimate_value(area_m2, parcel["voivodeship_code"], building_list)
-    gunb_link = get_gunb_link(parcel["parcel_no"])
-    geoportal_link = get_geoportal_link(parcel["teryt_id"])
-    emapa_link = get_emapa_link(parcel["teryt_id"])
-    ekw_link = get_ekw_link()
     verdict = build_verdict(
-        landslide, zoning, flood_zone, waterlogging, utilities, nearest_road, protected_areas, mining_areas,
-        air_quality,
+        results["landslide"], results["zoning"], results["flood_zone"], results["waterlogging"],
+        results["utilities"], results["nearest_road"], results["protected_areas"], results["mining_areas"],
+        results["air_quality"],
     )
 
     # Które z 25 punktów listy "przed zakupem" ta analiza już realnie
@@ -416,25 +454,34 @@ async def analyze(parcel_id: str = Query(default="")):
     # dzielą jeden status usługi (utilities), bo to jedno zapytanie GESUT
     # sprawdza oba naraz.
     covered = set()
-    if flood_zone.get("status") == "ok":
+    if results["flood_zone"].get("status") == "ok":
         covered.add("flood_zone")
-    if protected_areas.get("status") == "ok":
+    if results["protected_areas"].get("status") == "ok":
         covered.add("protected_areas")
-    if landslide.get("status") == "ok":
+    if results["landslide"].get("status") == "ok":
         covered.add("landslide")
-    if zoning.get("status") in ("ok", "partial"):
+    if results["zoning"].get("status") in ("ok", "partial"):
         covered.add("zoning_mpzp")
-    if nearest_road.get("status") == "ok":
+    if results["nearest_road"].get("status") == "ok":
         covered.add("road")
-    if utilities.get("status") == "ok":
+    if results["utilities"].get("status") == "ok":
         covered.add("power")
         covered.add("water_sewage")
     if valuation.get("status") == "ok":
         covered.add("valuation")
-    if air_quality.get("status") == "ok":
+    if results["air_quality"].get("status") == "ok":
         covered.add("air_quality")
     due_diligence = build_due_diligence_checklist(covered)
 
+    return {"valuation": valuation, "verdict": verdict, "due_diligence": due_diligence}
+
+
+def _analyze_meta(parcel: dict[str, Any], geometry, centroid, area_m2: float) -> dict[str, Any]:
+    """Everything about a parcel that's known right after the ULDK lookup —
+    no enrichment section needed. Shared by /api/analyze (folded into its one
+    big response) and /api/analyze-stream (sent as the first SSE event, so
+    the map and identity line render immediately instead of waiting for any
+    of the 12 slower sections)."""
     return {
         "parcel": {
             "teryt_id": parcel["teryt_id"],
@@ -443,37 +490,152 @@ async def analyze(parcel_id: str = Query(default="")):
             "commune": parcel["commune"],
             "parcel_no": parcel["parcel_no"],
             "multiple_found": parcel["multiple_found"],
-            "geoportal_link": geoportal_link,
-            "emapa_link": emapa_link,
+            "geoportal_link": get_geoportal_link(parcel["teryt_id"]),
+            "emapa_link": get_emapa_link(parcel["teryt_id"]),
         },
         "geometry_geojson": mapping(geometry),
         "centroid": {"lat": centroid.y, "lon": centroid.x},
         "area_m2": round(area_m2, 2),
-        "verdict": verdict,
-        "due_diligence": due_diligence,
-        "landslide": landslide,
-        "utilities": utilities,
-        "cadastre": cadastre,
-        "buildings": buildings,
-        "zoning": zoning,
-        "protected_areas": protected_areas,
-        "mining_areas": mining_areas,
-        "air_quality": air_quality,
-        "hydrology": {
-            "waterways": waterways,
-            "flood_zone": flood_zone,
-            "waterlogging": waterlogging,
-        },
-        "nearest_road": nearest_road,
-        "permits": {"gunb_link": gunb_link},
-        "land_registry": {"ekw_link": ekw_link},
-        "valuation": valuation,
+        "permits": {"gunb_link": get_gunb_link(parcel["parcel_no"])},
+        "land_registry": {"ekw_link": get_ekw_link()},
         "map_layers": {
             "egib": {"url": KIEG_URL, "layers": "dzialki,numery_dzialek,budynki"},
             "mpzp": {"url": KIMPZP_URL, "layers": "plany"},
             "app": {"url": KIAPP_URL, "layers": "app"},
         },
     }
+
+
+async def _resolve_parcel_geometry(parcel_id: str) -> tuple[dict[str, Any], Any, Any, float, float, float]:
+    """Shared prelude for both /api/analyze and /api/analyze-stream: the
+    single ULDK lookup + derived geometry fields every section needs.
+    Raises HTTPException (404/502, from uldk_get_parcel) on a genuine
+    lookup failure — for the streaming endpoint this MUST happen before the
+    StreamingResponse is constructed, since once that response starts,
+    Starlette has already committed HTTP 200 and the event-stream headers,
+    so a later error can no longer become a normal JSON error response."""
+    client = _get_http_client()
+    parcel = await uldk_get_parcel(client, parcel_id)
+    geometry = parcel["geometry"]
+    centroid = geometry.centroid
+    cx2180, cy2180 = to_2180.transform(centroid.x, centroid.y)
+    area_m2, _perimeter_m = geod.geometry_area_perimeter(geometry)
+    area_m2 = abs(area_m2)
+    return parcel, geometry, centroid, cx2180, cy2180, area_m2
+
+
+@app.get("/api/analyze")
+async def analyze(parcel_id: str = Query(default="")):
+    parcel_id = parcel_id.strip()
+    if len(parcel_id) < 3:
+        raise HTTPException(400, "Podaj poprawny numer działki (identyfikator TERYT).")
+
+    client = _get_http_client()
+    parcel, geometry, centroid, cx2180, cy2180, area_m2 = await _resolve_parcel_geometry(parcel_id)
+    teryt_id = parcel["teryt_id"]
+
+    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid)
+    values = await asyncio.gather(*[_timed(name, coro) for name, coro in specs])
+    results = dict(zip((name for name, _coro in specs), values))
+
+    derived = _compute_derived(parcel, area_m2, results)
+
+    response = _analyze_meta(parcel, geometry, centroid, area_m2)
+    response.update(derived)
+    response.update({
+        "landslide": results["landslide"],
+        "utilities": results["utilities"],
+        "cadastre": results["cadastre"],
+        "buildings": results["buildings"],
+        "zoning": results["zoning"],
+        "protected_areas": results["protected_areas"],
+        "mining_areas": results["mining_areas"],
+        "air_quality": results["air_quality"],
+        "hydrology": {
+            "waterways": results["waterways"],
+            "flood_zone": results["flood_zone"],
+            "waterlogging": results["waterlogging"],
+        },
+        "nearest_road": results["nearest_road"],
+    })
+    return response
+
+
+def _sse_event(event: str, data: Any) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+
+
+@app.get("/api/analyze-stream")
+async def analyze_stream(parcel_id: str = Query(default="")):
+    """Streaming counterpart of /api/analyze (Server-Sent Events) — added
+    2026-09-04, performance optimization (c) from HANDOFF.md's "Propozycje
+    optymalizacji wydajności": fast sections (landslide, cadastre, hazards…)
+    reach the browser as soon as each one's own network round-trip finishes,
+    instead of the whole result waiting for ALL 12 branches — including the
+    slowest, least reliable one (plan zagospodarowania) — to land together.
+    /api/analyze itself is UNCHANGED and still returns the same one-shot
+    JSON response as before; this is an additive alternative that
+    static/app.js now uses for the main "Analiza działki" flow.
+
+    Event stream shape (see static/app.js for the consumer):
+      event: meta    — parcel identity, geometry, centroid, area, static
+                        links (permits/land_registry/map_layers) — nothing
+                        here needed a network call beyond the initial ULDK
+                        lookup, so it's always the very first chunk.
+      event: section — {"key": <one of the 12 _section_specs names>,
+                        "value": <that section's result dict>}, one per
+                        branch, in whatever order they actually finish.
+      event: done    — {"verdict", "due_diligence", "valuation"}, only
+                        computable once every section above has resolved.
+
+    A disconnect mid-stream (or any other early exit from the generator)
+    cancels whichever of the 12 background tasks are still pending instead
+    of leaving them to run untracked to completion."""
+    parcel_id = parcel_id.strip()
+    if len(parcel_id) < 3:
+        raise HTTPException(400, "Podaj poprawny numer działki (identyfikator TERYT).")
+
+    client = _get_http_client()
+    parcel, geometry, centroid, cx2180, cy2180, area_m2 = await _resolve_parcel_geometry(parcel_id)
+    teryt_id = parcel["teryt_id"]
+    specs = _section_specs(client, teryt_id, geometry, cx2180, cy2180, centroid)
+
+    async def _named(name: str, awaitable: Awaitable[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+        try:
+            return name, await _timed(name, awaitable)
+        except Exception as exc:
+            # Sekcje w services/*.py z zasady same łapią swoje wyjątki i
+            # zwracają {"status": "error", ...} (patrz HANDOFF.md) — to jest
+            # tylko ostatnia linia obrony, gdyby któraś tego nie zrobiła.
+            # asyncio.gather w /api/analyze miałby ten sam problem (całe
+            # zapytanie padłoby z 500), ale tutaj — po tym jak nagłówki
+            # odpowiedzi 200 zostały już wysłane — nie ma innej opcji niż
+            # zamienić to w wiersz "error" i kontynuować strumień.
+            logger.warning("analyze-stream: sekcja %s rzuciła nieoczekiwany wyjątek", name, exc_info=True)
+            return name, {"status": "error", "message": f"Wewnętrzny błąd sekcji: {describe_exc(exc)}"}
+
+    async def _events() -> AsyncIterator[bytes]:
+        yield _sse_event("meta", _analyze_meta(parcel, geometry, centroid, area_m2))
+
+        tasks = [asyncio.ensure_future(_named(name, coro)) for name, coro in specs]
+        results: dict[str, Any] = {}
+        try:
+            for coro in asyncio.as_completed(tasks):
+                name, value = await coro
+                results[name] = value
+                yield _sse_event("section", {"key": name, "value": value})
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+
+        yield _sse_event("done", _compute_derived(parcel, area_m2, results))
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

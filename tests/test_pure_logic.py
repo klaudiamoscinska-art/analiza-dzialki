@@ -11,6 +11,7 @@ Run with: pytest (after `pip install -r requirements-dev.txt`).
 """
 import asyncio
 import io
+import json
 import pathlib
 import re
 import time
@@ -18,6 +19,7 @@ import time
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from PIL import Image
 from shapely.geometry import Polygon
 
@@ -914,6 +916,29 @@ async def test_get_or_fetch_services_are_independent(cache_db):
     assert result_y["value"] == "y"
 
 
+@pytest.mark.asyncio
+async def test_get_or_fetch_concurrent_first_touch_does_not_race(cache_db):
+    """Regression, found live 2026-09-04 while testing the persistent-httpx-
+    client performance optimization: main.py fans out up to 12 concurrent
+    get_or_fetch calls per /api/analyze via asyncio.gather, hitting a
+    completely fresh cache.db — the NORMAL state after every deploy, since
+    the cache resets (see the module docstring). Before _conn_lock existed,
+    several worker threads could race _get_conn() on that very first touch:
+    either seeing the table not yet created ("no such table: cache_entries")
+    or racing each other's implicit transactions on the one shared
+    connection ("cannot commit - no transaction is active")."""
+    async def fetch(i):
+        return {"status": "ok", "value": i}
+
+    results = await asyncio.gather(*[
+        cache.get_or_fetch(f"svc{i % 3}", f"key{i}", 1000.0, lambda i=i: fetch(i))
+        for i in range(24)
+    ])
+
+    assert [r["value"] for r in results] == list(range(24))
+    assert all(r["cached"] is False for r in results)
+
+
 # ---------------------------------------------------------------------------
 # services.verdict.build_verdict — synthesized score/verdict + full status
 # checklist (2026-09-04, item 6 from "Rozpoznanie Działkopedii", extended
@@ -1725,3 +1750,130 @@ async def test_resolve_parcel_times_out_cleanly_instead_of_hanging(monkeypatch):
 
     assert exc_info.value.status_code == 504
     assert "Korbielów 3917/5" in exc_info.value.detail
+
+
+# ---------------------------------------------------------------------------
+# main.analyze / main.analyze_stream — performance optimizations added
+# 2026-09-04 (see HANDOFF.md, "Propozycje optymalizacji wydajności"):
+# (a) one persistent httpx.AsyncClient instead of one per request, (b) zoning
+# plugged into the cache, (c) a new SSE /api/analyze-stream endpoint sharing
+# _section_specs()/_compute_derived() with the original /api/analyze rather
+# than duplicating that wiring. This end-to-end test (via Starlette's
+# TestClient, so FastAPI's own routing/lifespan run for real) guards the
+# refactor: both endpoints must expose the exact same 12 section results and
+# the same verdict/due_diligence/valuation, assembled from a genuinely
+# streamed SSE response for the second one.
+# ---------------------------------------------------------------------------
+
+def _fake_parcel_for_stream_test():
+    return {
+        "teryt_id": "146501_1.0001.1/2",
+        "voivodeship_code": "14",
+        "voivodeship_name": "mazowieckie",
+        "county": "warszawski",
+        "commune": "Warszawa",
+        "parcel_no": "1/2",
+        "geometry": Polygon([(21.0, 52.0), (21.001, 52.0), (21.001, 52.001), (21.0, 52.001), (21.0, 52.0)]),
+        "multiple_found": False,
+        "found_count": 1,
+    }
+
+
+def _patch_all_sections_ok(monkeypatch):
+    async def ok(*_a, **_k):
+        return {"status": "ok"}
+
+    async def ok_buildings(*_a, **_k):
+        return {"status": "ok", "buildings": [], "source": "OSM"}
+
+    async def ok_air_quality(*_a, **_k):
+        return {
+            "status": "ok", "station_name": "Test", "distance_m": 500, "pollutant": "PM2.5",
+            "value": 10, "unit": "µg/m3", "measured_at": "2026-09-04 10:00", "attribution": "GIOŚ",
+        }
+
+    async def fake_uldk_get_parcel(_client, _parcel_id):
+        return _fake_parcel_for_stream_test()
+
+    monkeypatch.setattr(main, "uldk_get_parcel", fake_uldk_get_parcel)
+    monkeypatch.setattr(main, "check_landslide", ok)
+    monkeypatch.setattr(main, "check_utilities", ok)
+    monkeypatch.setattr(main, "get_cadastre_basic", ok)
+    monkeypatch.setattr(main, "get_zoning", ok)
+    monkeypatch.setattr(main, "get_buildings_on_parcel", ok_buildings)
+    monkeypatch.setattr(main, "get_waterways", ok)
+    monkeypatch.setattr(main, "get_flood_zone", ok)
+    monkeypatch.setattr(main, "get_waterlogging_risk", ok)
+    monkeypatch.setattr(main, "get_nearest_municipal_road", ok)
+    monkeypatch.setattr(main, "get_protected_areas", ok)
+    monkeypatch.setattr(main, "check_mining_areas", ok)
+    monkeypatch.setattr(main, "get_air_quality", ok_air_quality)
+
+
+_SECTION_KEYS = {
+    "landslide", "utilities", "cadastre", "zoning", "buildings", "waterways",
+    "flood_zone", "waterlogging", "nearest_road", "protected_areas", "mining_areas", "air_quality",
+}
+
+
+def _parse_sse(raw_text):
+    """Minimal SSE frame parser for tests — splits on the blank-line frame
+    separator and pulls out the 'event:'/'data:' lines, mirroring what
+    static/app.js's own parser does for the real stream."""
+    events = []
+    for frame in raw_text.split("\n\n"):
+        if not frame.strip():
+            continue
+        event_name, data_line = None, None
+        for line in frame.split("\n"):
+            if line.startswith("event: "):
+                event_name = line[len("event: "):]
+            elif line.startswith("data: "):
+                data_line = line[len("data: "):]
+        events.append((event_name, json.loads(data_line) if data_line is not None else None))
+    return events
+
+
+def test_analyze_and_analyze_stream_agree_on_sections_and_derived_fields(monkeypatch, cache_db):
+    _patch_all_sections_ok(monkeypatch)
+
+    with TestClient(main.app) as client:
+        plain = client.get("/api/analyze?parcel_id=146501_1.0001.1/2")
+        assert plain.status_code == 200
+        plain_data = plain.json()
+
+        with client.stream("GET", "/api/analyze-stream?parcel_id=146501_1.0001.1/2") as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            events = _parse_sse("".join(resp.iter_text()))
+
+    assert events[0][0] == "meta"
+    assert events[-1][0] == "done"
+    section_events = [payload for name, payload in events if name == "section"]
+    assert {e["key"] for e in section_events} == _SECTION_KEYS
+    assert len(section_events) == len(_SECTION_KEYS)  # każda sekcja dokładnie raz
+
+    def _without_cache_metadata(section):
+        # The second request (the streamed one) hits the cache the first
+        # request just populated, so 'cached'/'fetched_at' legitimately
+        # differ between the two calls — strip them before comparing.
+        return {k: v for k, v in section.items() if k not in ("cached", "fetched_at")}
+
+    streamed = {e["key"]: e["value"] for e in section_events}
+    for key in _SECTION_KEYS:
+        expected = (
+            plain_data["hydrology"][key] if key in ("waterways", "flood_zone", "waterlogging")
+            else plain_data[key]
+        )
+        assert _without_cache_metadata(streamed[key]) == _without_cache_metadata(expected)
+
+    done_payload = events[-1][1]
+    assert done_payload["verdict"] == plain_data["verdict"]
+    assert done_payload["due_diligence"] == plain_data["due_diligence"]
+    assert done_payload["valuation"] == plain_data["valuation"]
+
+    meta_payload = events[0][1]
+    assert meta_payload["parcel"] == plain_data["parcel"]
+    assert meta_payload["area_m2"] == plain_data["area_m2"]
+    assert meta_payload["permits"] == plain_data["permits"]
+    assert meta_payload["land_registry"] == plain_data["land_registry"]
