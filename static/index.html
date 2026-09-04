@@ -81,6 +81,7 @@
     overflow-y:auto;
     padding:16px 16px 28px;
     -webkit-overflow-scrolling:touch;
+    scroll-behavior:smooth;
   }
 
   .eyebrow{
@@ -173,6 +174,7 @@
     border-radius:8px;
     padding:14px 14px;
     margin-bottom:10px;
+    scroll-margin-top:12px;
   }
   .card h3{
     margin:0 0 6px;
@@ -288,9 +290,10 @@
   .cc.ok{ background:var(--ok-bg); color:var(--ok); }
 
   .check-rows{ margin-bottom:4px; }
-  .check-row{ padding:9px 0; border-bottom:1px solid var(--line); }
-  .check-row:last-child{ border-bottom:none; }
-  .check-row-head{ display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .check-row-link{ display:block; text-decoration:none; color:inherit; padding:9px 0; border-bottom:1px solid var(--line); }
+  .check-row-link:last-child{ border-bottom:none; }
+  .check-row-link:hover .check-label{ text-decoration:underline; }
+  .check-row-head{ display:flex; align-items:center; gap:8px; }
   .check-label{ font-weight:700; font-size:13.5px; color:var(--ink); }
   .check-pill{
     font-family:var(--mono);
@@ -306,7 +309,6 @@
   .check-row.tier-risk .check-pill{ background:var(--danger-bg); color:var(--danger); }
   .check-row.tier-warning .check-pill{ background:var(--warn-bg); color:var(--warn); }
   .check-row.tier-ok .check-pill{ background:var(--ok-bg); color:var(--ok); }
-  .check-text{ margin:0; font-size:13px; color:#4a5854; line-height:1.4; }
 
   /* ---------- LISTA KROKÓW PRZED ZAKUPEM (25-punktowa checklista) ---------- */
   .dd-category{ margin-bottom:14px; }
@@ -813,6 +815,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=26"></script>
+<script src="/static/app.js?v=27"></script>
 </body>
 </html>
