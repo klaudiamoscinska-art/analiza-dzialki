@@ -230,11 +230,23 @@ TTL_MINING_AREAS = 180 * _DAY  # PIG-PIB MIDAS — same geological-survey cadenc
 TTL_PROTECTED_AREAS = 180 * _DAY  # GDOŚ — protected-area boundaries are a legal act, changes are rare and public
 TTL_AIR_QUALITY_STATIONS = 30 * _DAY  # GIOŚ station list (~288 stations, coordinates) — changes rarely
 TTL_AIR_QUALITY = 3600.0  # GIOŚ readings are HOURLY data — a long TTL here would show stale air quality as current, unlike the geological/legal data above
-# Deliberately NOT cached yet: zoning (plan zagospodarowania — the one
-# service where a change inside the TTL window has real decision
-# relevance) and the parcel's own ULDK identification (its "identity" —
-# see HANDOFF.md for why these are being held back until the "dane z:"
-# timestamp + manual refresh UI ships).
+# Zoning (plan zagospodarowania) — added 2026-09-04 as performance
+# optimization (b) from HANDOFF.md's "Propozycje optymalizacji wydajności":
+# this was the one section deliberately left uncached (a gmina can adopt a
+# new plan mid-negotiation, real decision relevance) until the "dane z:
+# [data]" visible-timestamp mechanism existed to make cache age obvious —
+# that mechanism (services/cache.py's fetched_at + app.js's dataAgeNote())
+# already shipped for every OTHER cached section, so plugging zoning into
+# the exact same get_or_fetch() gives it the same transparency for free.
+# Short TTL (7 days, not 30-180 like the geological data above) specifically
+# BECAUSE this one carries more real-world consequence than the rest — a
+# stale "no plan found" should not realistically survive a whole plan
+# adoption cycle. A manual "refresh now" button (bypassing the cache for one
+# section on demand) is still a separate, NOT-yet-built follow-up — see
+# HANDOFF.md.
+TTL_ZONING = 7 * _DAY
+# Deliberately still NOT cached: the parcel's own ULDK identification (its
+# "identity" — the geometry/teryt lookup itself, not an enrichment section).
 
 OSM_BUILDING_LABELS: dict[str, str] = {
     "house": "budynek mieszkalny jednorodzinny",

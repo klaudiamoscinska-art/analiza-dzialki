@@ -22,26 +22,57 @@ disk is added later."""
 import asyncio
 import json
 import sqlite3
+import threading
 import time
 from typing import Any, Awaitable, Callable, Optional
 
 from config import CACHE_DB_PATH, logger
 
 _conn: Optional[sqlite3.Connection] = None
+# _read_row/_write_row each run on a worker thread via asyncio.to_thread (see
+# get_or_fetch's docstring), and main.py fans out up to 12 of these calls
+# concurrently per /api/analyze — found live 2026-09-04 while testing the
+# persistent-httpx-client optimization. Two related, but distinct, races
+# showed up on a completely fresh cache.db (which is the NORMAL state after
+# every deploy, since the cache resets — see the module docstring):
+#   1. Several worker threads can all see `_conn is None` at once and race
+#      to create it, so one can start reading before another's own CREATE
+#      TABLE has committed ("no such table: cache_entries").
+#   2. `check_same_thread=False` only lifts sqlite3's "same thread" guard —
+#      it does NOT make a single Connection object safe for genuinely
+#      concurrent use from multiple threads. Two threads calling
+#      conn.execute()/conn.commit() at the same moment on the SAME
+#      connection raced each other's implicit transactions ("cannot commit
+#      - no transaction is active").
+# A single, plain threading.Lock (not asyncio.Lock — this guards access
+# from separate OS threads, not coroutines) held for the FULL duration of
+# every connection creation, read, and write closes both races at once by
+# making all sqlite3 access here strictly one-at-a-time. Each individual
+# operation is a fast, already-fast SQLite statement, so serializing them
+# behind a lock costs microseconds — nowhere near enough to undo the
+# concurrency gains asyncio.gather/asyncio.to_thread give the REST of
+# /api/analyze (the actual network calls, which run outside this lock).
+# RLock (not a plain Lock) because _read_row/_write_row acquire it and then
+# call _get_conn(), which acquires it again on the same thread — a plain
+# Lock would deadlock there.
+_conn_lock = threading.RLock()
 
 
 def _get_conn() -> sqlite3.Connection:
     global _conn
     if _conn is None:
-        _conn = sqlite3.connect(CACHE_DB_PATH, check_same_thread=False)
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute(
-            "CREATE TABLE IF NOT EXISTS cache_entries ("
-            "service TEXT NOT NULL, cache_key TEXT NOT NULL, "
-            "payload_json TEXT NOT NULL, fetched_at REAL NOT NULL, "
-            "PRIMARY KEY (service, cache_key))"
-        )
-        _conn.commit()
+        with _conn_lock:
+            if _conn is None:
+                conn = sqlite3.connect(CACHE_DB_PATH, check_same_thread=False)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS cache_entries ("
+                    "service TEXT NOT NULL, cache_key TEXT NOT NULL, "
+                    "payload_json TEXT NOT NULL, fetched_at REAL NOT NULL, "
+                    "PRIMARY KEY (service, cache_key))"
+                )
+                conn.commit()
+                _conn = conn
     return _conn
 
 
@@ -56,21 +87,23 @@ def _reset_for_tests() -> None:
 
 
 def _read_row(service: str, key: str) -> Optional[tuple[str, float]]:
-    conn = _get_conn()
-    return conn.execute(
-        "SELECT payload_json, fetched_at FROM cache_entries WHERE service=? AND cache_key=?",
-        (service, key),
-    ).fetchone()
+    with _conn_lock:
+        conn = _get_conn()
+        return conn.execute(
+            "SELECT payload_json, fetched_at FROM cache_entries WHERE service=? AND cache_key=?",
+            (service, key),
+        ).fetchone()
 
 
 def _write_row(service: str, key: str, payload_json: str, fetched_at: float) -> None:
-    conn = _get_conn()
-    conn.execute(
-        "INSERT OR REPLACE INTO cache_entries (service, cache_key, payload_json, fetched_at) "
-        "VALUES (?, ?, ?, ?)",
-        (service, key, payload_json, fetched_at),
-    )
-    conn.commit()
+    with _conn_lock:
+        conn = _get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO cache_entries (service, cache_key, payload_json, fetched_at) "
+            "VALUES (?, ?, ?, ?)",
+            (service, key, payload_json, fetched_at),
+        )
+        conn.commit()
 
 
 async def get_or_fetch(
