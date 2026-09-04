@@ -27,6 +27,44 @@ SOPO_LAYERS = {
 
 PODTOPIENIA_BASE_URL = "https://cbdgmapa.pgi.gov.pl/arcgis/rest/services/hydrogeologia/podtopienia/MapServer"
 
+# PIG-PIB MIDAS — obszary/tereny górnicze (mining areas/terrains), a real
+# legal encumbrance on a parcel. Same host and same ArcGIS REST 'identify'
+# pattern as SOPO/podtopienia above — added 2026-09-04 (item 9, competitor
+# analysis — see HANDOFF.md). NOT verified live: unlike SOPO's layer IDs
+# (confirmed live via ?f=json), this URL and the fact that a 'midas'
+# service exists on this host is corroborated only from third-party
+# sources (see HANDOFF.md citations), not from PIG-PIB's own live
+# capabilities response.
+MIDAS_BASE_URL = "https://cbdgmapa.pgi.gov.pl/arcgis/rest/services/midas/MapServer"
+
+# GDOŚ — obszary chronione przyrody (parki narodowe, rezerwaty, parki
+# krajobrazowe, obszary chronionego krajobrazu, Natura 2000), served via
+# GDOŚ's own WFS (GeoServer). Added 2026-09-04 (item 8, competitor
+# analysis). NOT verified live — URL and layer (typeName) names are
+# corroborated from multiple independent open-source projects that
+# already integrate this exact service (see HANDOFF.md citations), since
+# GDOŚ's own GetCapabilities isn't reachable from this sandbox.
+GDOS_WFS_URL = "https://sdi.gdos.gov.pl/wfs"
+GDOS_LAYERS = [
+    ("GDOS:ParkiNarodowe", "park narodowy"),
+    ("GDOS:Rezerwaty", "rezerwat przyrody"),
+    ("GDOS:ParkiKrajobrazowe", "park krajobrazowy"),
+    ("GDOS:ObszaryChronionegoKrajobrazu", "obszar chronionego krajobrazu"),
+    ("GDOS:ObszarySpecjalnejOchrony", "obszar Natura 2000 (ptasi)"),
+    ("GDOS:SpecjalneObszaryOchrony", "obszar Natura 2000 (siedliskowy)"),
+]
+
+# Hałas (mapy akustyczne) — deliberately NOT integrated as a live service.
+# Researched 2026-09-04: there is no single national WMS/API for
+# strategic noise maps in Poland. GIOŚ aggregates for EU reporting but
+# doesn't publish a unified map; actual noise contours are published
+# separately by GDDKiA (national roads), PKP PLK (rail), airports, and
+# every city over 100k population, each on its own portal with its own
+# schema — dozens of separate integrations for a layer that would return
+# "no data" for most (rural/small-town) parcels anyway, which reads as a
+# false "no noise risk" rather than "not covered". See HANDOFF.md — the
+# app shows a static disclaimer instead of a live check.
+
 # Wody Polskie ISOK — official flood-hazard maps (Mapy Zagrozenia Powodziowego),
 # "medium probability" (~1%) flood depth layer. Layers 16 (depth polygons) and
 # 17 (river-basin reference info) confirmed via live GetFeatureInfo test.
@@ -112,6 +150,8 @@ TIMEOUT_OVERPASS = 14.0  # OpenStreetMap Overpass API
 TIMEOUT_WFS_POWIAT = 45.0  # individual powiat WFS servers — confirmed slow, keep generous
 TIMEOUT_ISOK_FLOOD = 30.0  # Wody Polskie ISOK flood-depth WMS
 TIMEOUT_PIG_WATERLOGGING = 30.0  # PIG-PIB waterlogging-risk ArcGIS 'identify'
+TIMEOUT_MIDAS = 30.0  # PIG-PIB MIDAS mining-areas ArcGIS 'identify' — same host/cadence as SOPO
+TIMEOUT_GDOS = 20.0  # GDOŚ protected-areas WFS GetFeature
 TIMEOUT_MPZP_PROBE = 15.0  # MPZP/APP GetMap visual pre-check
 TIMEOUT_MPZP_DETAIL = 12.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in asyncio.wait_for)
 TIMEOUT_OBREB_SCAN = 10.0  # per-obręb brute-force scan (many parallel short requests)
@@ -141,6 +181,8 @@ TTL_UTILITIES = 30 * _DAY  # GESUT — new connections happen, but rarely
 TTL_CADASTRE = 30 * _DAY  # KIEG basic — geodetic updates, rarely
 TTL_NEAREST_ROAD = 30 * _DAY  # OSM road network — rarely changes
 TTL_BUILDINGS = 14 * _DAY  # OSM buildings — new construction is the one thing here that plausibly moves faster
+TTL_MINING_AREAS = 180 * _DAY  # PIG-PIB MIDAS — same geological-survey cadence as SOPO
+TTL_PROTECTED_AREAS = 180 * _DAY  # GDOŚ — protected-area boundaries are a legal act, changes are rare and public
 # Deliberately NOT cached yet: zoning (plan zagospodarowania — the one
 # service where a change inside the TTL window has real decision
 # relevance) and the parcel's own ULDK identification (its "identity" —

@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import cache, geocoding, uldk, valuation, wfs_search, zoning
+from services import cache, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -833,3 +833,228 @@ async def test_get_or_fetch_services_are_independent(cache_db):
 
     assert result_x["value"] == "x"
     assert result_y["value"] == "y"
+
+
+# ---------------------------------------------------------------------------
+# services.verdict.build_verdict — synthesized score/verdict (2026-09-04,
+# item 6 from the "Rozpoznanie Działkopedii" work plan). Pure, deterministic
+# point-based rules — every deduction is named in 'flags', never a black box.
+# ---------------------------------------------------------------------------
+
+def _clean_signals():
+    return dict(
+        landslide={"status": "ok", "has_landslide": False},
+        zoning={"status": "ok", "found": "yes", "table": []},
+        flood_zone={"status": "ok", "in_flood_zone": False},
+        waterlogging={"status": "ok", "at_risk": False},
+        utilities={"status": "ok", "utilities": [{"present": True}] * 4 + [{"present": False}] * 2},
+        nearest_road={"status": "ok", "found": "yes", "is_fallback_powiatowa": False},
+        protected_areas={"status": "ok", "areas": []},
+    )
+
+
+def test_build_verdict_all_clean_scores_100_dobra():
+    result = verdict.build_verdict(**_clean_signals())
+    assert result["score"] == 100
+    assert result["level"] == "dobra"
+    assert result["flags"] == []
+    assert result["incomplete_sections"] == []
+
+
+def test_build_verdict_landslide_and_flood_are_critical_and_stack():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "ok", "has_landslide": True}
+    signals["flood_zone"] = {"status": "ok", "in_flood_zone": True}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100 - 40 - 35
+    assert result["level"] == "wysokie_ryzyko"
+    severities = {f["severity"] for f in result["flags"]}
+    assert "critical" in severities
+    assert len(result["flags"]) == 2
+
+
+def test_build_verdict_score_never_goes_below_zero():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "ok", "has_landslide": True}
+    signals["flood_zone"] = {"status": "ok", "in_flood_zone": True}
+    signals["waterlogging"] = {"status": "ok", "at_risk": True}
+    signals["zoning"] = {"status": "ok", "found": "no"}
+    signals["nearest_road"] = {"status": "ok", "found": "no"}
+    signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
+    signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Park X"}]}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 0
+    assert result["level"] == "wysokie_ryzyko"
+
+
+def test_build_verdict_failed_section_is_incomplete_not_a_flag():
+    signals = _clean_signals()
+    signals["landslide"] = {"status": "error", "message": "usługa niedostępna"}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100  # brak danych nie obniża wyniku
+    assert "zagrożenie osuwiskowe" in result["incomplete_sections"]
+    assert result["flags"] == []
+
+
+def test_build_verdict_no_utilities_detected_flags_warning():
+    signals = _clean_signals()
+    signals["utilities"] = {"status": "ok", "utilities": [{"present": False}] * 6}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100 - 15
+    assert any("mediów" in f["text"] for f in result["flags"])
+
+
+def test_build_verdict_protected_area_names_included_in_flag_text():
+    signals = _clean_signals()
+    signals["protected_areas"] = {"status": "ok", "areas": [{"name": "Rezerwat Wiślany"}]}
+    result = verdict.build_verdict(**signals)
+    assert any("Rezerwat Wiślany" in f["text"] for f in result["flags"])
+
+
+def test_build_verdict_no_missing_plan_flag_when_partial():
+    # status "partial" (plan wykryty, ale szczegóły nie doszły) nie powinien
+    # trafić ani do flag, ani do incomplete_sections — to nie jest "brak planu".
+    signals = _clean_signals()
+    signals["zoning"] = {"status": "partial", "found": "yes", "message": "timeout"}
+    result = verdict.build_verdict(**signals)
+    assert result["score"] == 100
+    assert result["incomplete_sections"] == []
+
+
+# ---------------------------------------------------------------------------
+# services.nature.get_protected_areas / services.geology.check_mining_areas
+# — items 8/9 from the competitor analysis (2026-09-04). Neither endpoint
+# is verified live (see HANDOFF.md) — these tests cover the parsing/
+# containment/CRS-detection logic against fake responses, not the real
+# services.
+# ---------------------------------------------------------------------------
+
+class _FakeArcgisResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+class _FakeGetJsonClient:
+    def __init__(self, data):
+        self._data = data
+
+    async def get(self, url, params=None, timeout=None):
+        return _FakeArcgisResponse(self._data)
+
+
+class _FailingGetClient:
+    async def get(self, url, params=None, timeout=None):
+        raise RuntimeError("network down")
+
+
+def _square_around(cx, cy, half_extent=100.0):
+    return [[
+        [cx - half_extent, cy - half_extent], [cx + half_extent, cy - half_extent],
+        [cx + half_extent, cy + half_extent], [cx - half_extent, cy + half_extent],
+        [cx - half_extent, cy - half_extent],
+    ]]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_point_inside_polygon_epsg2180():
+    data = {"features": [{
+        "id": "ParkiNarodowe.42",
+        "geometry": {"type": "Polygon", "coordinates": _square_around(500000.0, 300000.0)},
+        "properties": {"nazwa": "Testowy Park Narodowy"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == [{"name": "Testowy Park Narodowy", "kind": "park narodowy"}]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_bbox_hit_but_not_containing_is_excluded():
+    # Poligon daleko od punktu zapytania — nie powinien trafić do wyniku,
+    # nawet jeśli serwer zwrócił go w odpowiedzi na (celowo szeroki) bbox.
+    data = {"features": [{
+        "id": "Rezerwaty.7",
+        "geometry": {"type": "Polygon", "coordinates": _square_around(600000.0, 400000.0)},
+        "properties": {"nazwa": "Daleki Rezerwat"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_detects_wgs84_response_and_transforms_query_point():
+    from services.nature import _to_4326
+
+    qlon, qlat = _to_4326.transform(500000.0, 300000.0)
+    d = 0.001
+    coords = [[[qlon - d, qlat - d], [qlon + d, qlat - d], [qlon + d, qlat + d], [qlon - d, qlat + d], [qlon - d, qlat - d]]]
+    data = {"features": [{
+        "id": "ParkiKrajobrazowe.3",
+        "geometry": {"type": "Polygon", "coordinates": coords},
+        "properties": {"nazwa": "Testowy Park Krajobrazowy"},
+    }]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert result["areas"] == [{"name": "Testowy Park Krajobrazowy", "kind": "park krajobrazowy"}]
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_no_features_returns_empty_ok():
+    result = await nature.get_protected_areas(_FakeGetJsonClient({"features": []}), 500000.0, 300000.0)
+    assert result == {"status": "ok", "areas": []}
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_dedupes_same_name():
+    poly = _square_around(500000.0, 300000.0)
+    data = {"features": [
+        {"id": "ParkiNarodowe.1", "geometry": {"type": "Polygon", "coordinates": poly}, "properties": {"nazwa": "X"}},
+        {"id": "ParkiNarodowe.2", "geometry": {"type": "Polygon", "coordinates": poly}, "properties": {"nazwa": "X"}},
+    ]}
+    result = await nature.get_protected_areas(_FakeGetJsonClient(data), 500000.0, 300000.0)
+    assert len(result["areas"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_request_failure_returns_error():
+    result = await nature.get_protected_areas(_FailingGetClient(), 500000.0, 300000.0)
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_present_extracts_names_from_value_field():
+    data = {"results": [{"value": "Obszar górniczy Bogdanka I"}, {"value": "Teren górniczy Bogdanka I"}]}
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient(data), geometry)
+    assert result["status"] == "ok"
+    assert result["has_mining_area"] is True
+    assert result["names"] == ["Obszar górniczy Bogdanka I", "Teren górniczy Bogdanka I"]
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_absent_when_no_results():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient({"results": []}), geometry)
+    assert result["status"] == "ok"
+    assert result["has_mining_area"] is False
+    assert result["names"] == []
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_service_error_response():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FakeGetJsonClient({"error": {"message": "boom"}}), geometry)
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_check_mining_areas_request_failure_returns_error():
+    geometry = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+    result = await geology.check_mining_areas(_FailingGetClient(), geometry)
+    assert result["status"] == "error"

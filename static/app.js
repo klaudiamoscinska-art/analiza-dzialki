@@ -690,6 +690,35 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
+    // 0 — Werdykt: jeden syntetyczny wynik na górze, łączący sygnały
+    // pokazane osobno niżej. Patrz services/verdict.py.
+    const v = data.verdict;
+    if (v) {
+      const levelLabel = { dobra: "Dobra", do_sprawdzenia: "Do sprawdzenia", wysokie_ryzyko: "Wysokie ryzyko" }[
+        v.level
+      ] || v.level;
+      const flagsHTML = v.flags.length
+        ? `<ul class="verdict-flags">${v.flags
+            .map((f) => `<li class="${escapeHTML(f.severity)}">${escapeHTML(f.text)}</li>`)
+            .join("")}</ul>`
+        : `<p style="margin:6px 0 0;font-size:13.5px;">Nie wykryto żadnego z monitorowanych sygnałów ryzyka.</p>`;
+      const incompleteHTML = v.incomplete_sections.length
+        ? `<p class="verdict-incomplete">Niepełne dane: ${v.incomplete_sections
+            .map(escapeHTML)
+            .join(", ")} — sprawdź te sekcje ręcznie niżej.</p>`
+        : "";
+      html += `
+        <div class="verdict-card ${escapeHTML(v.level)}">
+          <div class="verdict-score">${v.score}</div>
+          <div class="verdict-body">
+            <p class="verdict-label">${escapeHTML(levelLabel)}</p>
+            ${flagsHTML}
+            ${incompleteHTML}
+            <p class="verdict-disclaimer">${escapeHTML(v.disclaimer)}</p>
+          </div>
+        </div>`;
+    }
+
     if (p.emapa_link) {
       html += `<a class="link-out-btn" href="${p.emapa_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska.e-mapa.net →</a>`;
     }
@@ -815,6 +844,39 @@
     }
     hyInner += dataAgeNote(ww);
     html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
+
+    // 4c — Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
+    const pa = data.protected_areas;
+    const ma = data.mining_areas;
+    let natInner = "";
+    if (pa.status === "ok") {
+      natInner += pa.areas.length
+        ? `<p style="color:var(--warn);font-weight:700;">Działka w obszarze chronionym</p>` +
+          pa.areas
+            .map(
+              (a) =>
+                `<div class="waterway-row"><span>${escapeHTML(a.name)}</span><span class="kind">(${escapeHTML(
+                  a.kind
+                )})</span></div>`
+            )
+            .join("")
+        : `<p class="disclaimer">Brak obszarów chronionych GDOŚ (parki narodowe/krajobrazowe, rezerwaty, Natura 2000) w tym miejscu.</p>`;
+      natInner += dataAgeNote(pa);
+    } else {
+      natInner += `<p class="disclaimer">${escapeHTML(pa.message)}</p>`;
+    }
+    if (ma.status === "ok") {
+      natInner += ma.has_mining_area
+        ? `<p style="color:var(--warn);font-weight:700;margin-top:8px;">Działka w terenie/obszarze górniczym (MIDAS)</p><p class="disclaimer">${escapeHTML(
+            ma.names.join(", ")
+          )}</p>`
+        : `<p class="disclaimer" style="margin-top:8px;">Brak wykrytych terenów/obszarów górniczych (MIDAS PIG-PIB).</p>`;
+      natInner += dataAgeNote(ma);
+    } else {
+      natInner += `<p class="disclaimer" style="margin-top:8px;">${escapeHTML(ma.message)}</p>`;
+    }
+    natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
+    html += `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
 
     // 4b — Odległość do najbliższej drogi gminnej
     const nr = data.nearest_road;

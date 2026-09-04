@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 59 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 76 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -558,6 +558,119 @@ błąd nigdy nie cache'owany, niezależność kluczy/usług. Razem 59 testów.
 przyspieszenie NIE zostało zmierzone na żywo** (te same ograniczenia
 sieciowe co zawsze w tym środowisku) — logi z punktu 1 to pierwszy krok
 do tego, nie coś, co dało się zweryfikować z tego sandboksa.
+
+### Werdykt, obszary chronione i geologia (items 6, 8, 9 z „Rozpoznania Działkopedii") — dodane 2026-09-04
+
+Klaudia poprosiła o realizację pozycji 6, 8, 9 z raportu-artefaktu
+„Rozpoznanie Działkopedii" naraz. Item 6 (syntetyczny werdykt) jest
+logicznie zależny od item 8 (obszary chronione jako jeden z sygnałów
+werdyktu), więc zanim cokolwiek się podłączyło do `main.py`, GDOŚ i
+PIG-PIB zostały zbadane przez subagenta (WebSearch, bo bezpośredni
+dostęp do `*.gov.pl` jest w tym środowisku zablokowany identycznie jak
+wcześniej) — **żeby nie zgadywać kolejnego URL-a bez podstaw**, tak jak
+przy KIMPZP/KIAPP/KIUT. Pełne ustalenia researchu (z cytowaniami) niżej;
+kod trafia dopiero po nich.
+
+**Obszary chronione (GDOŚ, item 8) — `services/nature.py::get_protected_areas()`.**
+Wysoka pewność researchu: WFS `https://sdi.gdos.gov.pl/wfs` (GeoServer,
+workspace `GDOS`), sześć warstw (`typeNames`): `ParkiNarodowe`,
+`Rezerwaty`, `ParkiKrajobrazowe`, `ObszaryChronionegoKrajobrazu`,
+`ObszarySpecjalnejOchrony` (Natura 2000 ptasi/OSO),
+`SpecjalneObszaryOchrony` (Natura 2000 siedliskowy/SOO) — potwierdzone
+przez kilka niezależnych open-source'owych projektów, które już z tego
+serwisu korzystają (nie z własnego GetCapabilities GDOŚ, do którego nie
+ma dostępu z tego środowiska). Stary adres (`wms.gdos.gov.pl/geoserver/wms`)
+jest wycofany — świadomie NIE użyty.
+
+Realna niepewność, którą kod obsługuje empirycznie zamiast zakładać:
+GeoServer czasem ignoruje `srsName` przy `outputFormat=application/json`
+i zwraca współrzędne WGS84 zamiast żądanego EPSG:2180 — dokładnie ten
+sam rodzaj niepewności, który `wfs_search.enumerate_parcel_points_in_area`
+już rozwiązuje dla innego przypadku (kolejność osi). Tutaj: pierwsza
+zwrócona współrzędna jest sprawdzana po wielkości liczb (czy wygląda jak
+długość/szerokość geograficzna Polski, czy jak EPSG:2180) i punkt
+zapytania jest transformowany odpowiednio — zamiast zakładać jedno
+zachowanie serwera. GetFeatureInfo NIE jest potwierdzone (oficjalna
+przeglądarka Geoserwis używa własnego, nieudokumentowanego proxy zamiast
+zwykłego WMS GetFeatureInfo) — użyte jest WFS GetFeature zamiast tego,
+co i tak jest lepsze (prawdziwa geometria do testu przecięcia z punktem,
+nie tylko trafienie w piksel).
+
+**Tereny górnicze (PIG-PIB MIDAS, item 9) — `services/geology.py::check_mining_areas()`.**
+Ten sam host i wzorzec ArcGIS REST `identify` co już potwierdzone na
+żywo SOPO/podtopienia (`cbdgmapa.pgi.gov.pl`), tylko `midas/MapServer`
+zamiast `geozagrozenia/sopo_obszary`. W przeciwieństwie do SOPO (warstwy
+potwierdzone przez `?f=json`), URL i istnienie tej usługi na tym hoście
+są potwierdzone tylko pośrednio (cytaty niżej), nie bezpośrednim
+sprawdzeniem. Nazwa terenu/obszaru górniczego wyciągana z pola `value` w
+odpowiedzi `identify` — to pole protokołu ArcGIS REST (podstawowa
+wartość wyświetlana obiektu), nie zgadywana nazwa atrybutu usługi, więc
+powinno działać niezależnie od wewnętrznego schematu MIDAS.
+
+**Hałas — świadomie NIE zintegrowane.** Research jednoznacznie: w Polsce
+nie ma jednej krajowej usługi WMS/API dla map akustycznych. GIOŚ
+agreguje dane do raportowania unijnego, ale niczego nie publikuje jako
+jedną usługę — realne mapy hałasu publikują osobno GDDKiA (drogi
+krajowe), PKP PLK (kolej), lotniska i każde miasto powyżej 100 tys.
+mieszkańców, każde na własnym portalu z własnym schematem. Dla typowej
+wiejskiej/małomiasteczkowej działki (czyli większości użytkowniczek tej
+appki) odpowiedź byłaby prawie zawsze "brak danych", co czytałoby się
+fałszywie jako "brak hałasu", a nie "nie sprawdzono". Zamiast integracji
+appka pokazuje statyczną notatkę w karcie "Obszary chronione i
+geologia" z sugestią sprawdzenia mapy właściwego miasta osobno.
+Rozważane, ale odrzucone jako zbyt spekulatywne bez weryfikacji na
+żywo: MGśP (mapa geośrodowiskowa — brak potwierdzonego endpointu),
+podatność gleb na suszę (IUNG/GUGiK — endpoint nieznaleziony), erozja
+(brak usługi, tylko opracowania PDF), spadki terenu przez NMT GUGiK
+(`services.gugik.gov.pl/nmt/` — istnienie potwierdzone, ale dokładna
+składnia zapytania nieznana, niewarta zgadywania).
+
+**Syntetyczny werdykt (item 6) — `services/verdict.py::build_verdict()`,
+teraz podłączony w `main.py`.** Czysta, deterministyczna funkcja
+punktowa (start 100, odejmowanie za każdy sygnał ryzyka, każde odjęcie
+nazwane w `flags`, nigdy czarna skrzynka): 40 pkt za osuwisko, 35 za
+strefę zalewową, 15 za ryzyko podtopień, 10 za obszar chroniony, 10 za
+brak planu miejscowego, 20 za brak drogi publicznej w pobliżu (5 za
+tylko drogę wyższej kategorii), 15 za brak wykrytych mediów (5 przy
+1-2 typach). Sekcja, która nie odpowiedziała (`status != "ok"`), NIGDY
+nie obniża wyniku — trafia do osobnej listy `incomplete_sections`, żeby
+"nie wiemy" nigdy nie wyglądało jak "wszystko OK". Wynik 0-100 mapowany
+na 3 poziomy: `dobra` (≥80), `do_sprawdzenia` (50-79),
+`wysokie_ryzyko` (<50). Karta werdyktu na samej górze wyniku w
+`app.js`/`index.html`, z kolorami per poziom (nowe tokeny CSS
+`--warn`/`--warn-bg` obok istniejących `--ok`/`--danger`).
+
+**Cache**: `protected_areas` i `mining_areas` podłączone do
+`services/cache.py` z TTL 180 dni (`TTL_PROTECTED_AREAS`,
+`TTL_MINING_AREAS`) — ten sam poziom pewności co inne dane
+geologiczne/administracyjne o wieloletnim cyklu aktualizacji (patrz
+tabela w artefakcie „Plan Pamięci Podręcznej").
+
+18 nowych testów pytest (76 razem): parsowanie GeoJSON i test
+przecięcia z punktem w `nature.py` (w tym dedykowany test na
+wykrywanie-i-transformację WGS84 z prawdziwym `pyproj.Transformer` —
+nie mockiem), ekstrakcja pola `value` w `geology.py`, pełne pokrycie
+reguł punktowych w `verdict.py`. **Żadna z trzech nowych usług (GDOŚ
+WFS, MIDAS, i sam fakt, że werdykt sensownie się liczy na prawdziwych
+danych) nie została zweryfikowana na żywo** — domeny rządowe
+zablokowane w tym środowisku identycznie jak zawsze. Jeśli po
+wdrożeniu na produkcję `protected_areas`/`mining_areas` zawsze wracają
+`status: "error"`, to pierwsze miejsce do sprawdzenia — być może URL
+albo nazwy warstw wymagają korekty na podstawie realnej odpowiedzi
+serwera (message z wyjątku powinien to pokazać).
+
+**Źródła researchu GDOŚ/MIDAS** (dla przyszłej weryfikacji na żywo):
+GEOBID „Nowy adres usługi WMS dla danych GDOŚ", GDOŚ „Dostęp do danych
+geoprzestrzennych" (gov.pl), rekordy metadanych na bankdanych.gdos.gov.pl,
+oraz cztery niezależne projekty open-source na GitHubie, które już
+odpytują `sdi.gdos.gov.pl/wfs` z tymi samymi nazwami warstw:
+`majkrzak/sp-sota-maps` (`lib/src/sota/park.py`, 9 typeNames naraz —
+stąd pewność, że multi-typeName GetFeature działa),
+`agsti/highline_scout`, `Eksploracja/MapoTero`, `mpraz/gpx-tracks`. Dla
+MIDAS: `INSPIRE-MIF/mr-tools` (logi INSPIRE Monitoring & Reporting
+sprawdzające dostępność usług PIG-PIB) i katalog usług PIG-PIB
+(geoportal.pgi.gov.pl/portal/page/portal/uslugi_gis — nie sprawdzony
+bezpośrednio z tego środowiska, warto zajrzeć ręcznie przy okazji).
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
