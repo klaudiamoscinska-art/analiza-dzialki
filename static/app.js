@@ -656,6 +656,17 @@
     return div.innerHTML;
   }
 
+  function dataAgeNote(obj) {
+    // Pokazuje, kiedy dana sekcja faktycznie została pobrana — dodane
+    // 2026-09-04 razem z cache'em (services/cache.py). Sekcje, które nie
+    // są cache'owane (np. plan zagospodarowania) nie mają pola
+    // fetched_at i po prostu nie pokazują tej notatki.
+    if (!obj || typeof obj.fetched_at !== "number") return "";
+    const d = new Date(obj.fetched_at * 1000);
+    const formatted = d.toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" });
+    return `<p class="disclaimer" style="opacity:.7;">Dane z: ${formatted}</p>`;
+  }
+
   function tableHTML(rows) {
     if (!rows || !rows.length) return "";
     const body = rows
@@ -703,6 +714,7 @@
     } else {
       egibInner += `<p>Brak danych w tej lokalizacji.</p>`;
     }
+    egibInner += dataAgeNote(cad);
     egibInner += `<p class="disclaimer" style="margin-top:10px;padding-top:8px;">Budynki na działce</p>`;
     if (bld.status === "ok" && bld.buildings && bld.buildings.length) {
       egibInner += bld.buildings
@@ -728,6 +740,7 @@
     } else {
       egibInner += `<p class="disclaimer">${escapeHTML(bld.message)}</p>`;
     }
+    egibInner += dataAgeNote(bld);
     html += `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
 
     // 2 — Zagrożenie osuwiskowe
@@ -740,8 +753,10 @@
             )}</p>`
           : "";
       html += ls.has_landslide
-        ? `<div class="card danger"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}</div>`
-        : cardHTML({ title: "Zagrożenie osuwiskowe", text: "BRAK ZAGROŻEŃ OSUWISKOWYCH", tone: "ok" });
+        ? `<div class="card danger"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}${dataAgeNote(
+            ls
+          )}</div>`
+        : `<div class="card ok"><h3>Zagrożenie osuwiskowe</h3><p>BRAK ZAGROŻEŃ OSUWISKOWYCH</p>${dataAgeNote(ls)}</div>`;
     } else {
       html += cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
     }
@@ -762,6 +777,7 @@
     } else {
       utInner = `<p>${escapeHTML(ut.message)}</p>`;
     }
+    utInner += dataAgeNote(ut);
     html += `<div class="card muted"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
 
     // 4 — Hydrologia i zagrożenie powodziowe
@@ -777,6 +793,7 @@
     } else {
       hyInner += `<p class="disclaimer">${escapeHTML(fz.message)}</p>`;
     }
+    hyInner += dataAgeNote(fz);
     const wl = hy.waterlogging;
     if (wl.status === "ok") {
       hyInner += wl.at_risk
@@ -796,6 +813,7 @@
     } else if (ww.status === "ok") {
       hyInner += `<p class="disclaimer">Brak cieków wodnych w promieniu 400 m.</p>`;
     }
+    hyInner += dataAgeNote(ww);
     html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
     // 4b — Odległość do najbliższej drogi gminnej
@@ -811,8 +829,9 @@
         nrInner += `<p class="disclaimer">Brak drogi gminnej w promieniu wyszukiwania — pokazano najbliższą drogę wyższej kategorii (prawdopodobnie powiatową).</p>`;
       }
       nrInner += `<p class="disclaimer">${escapeHTML(nr.source)}</p>`;
+      nrInner += dataAgeNote(nr);
     } else if (nr.status === "ok") {
-      nrInner = `<p>${escapeHTML(nr.message)}</p>`;
+      nrInner = `<p>${escapeHTML(nr.message)}</p>${dataAgeNote(nr)}`;
     } else {
       nrInner = `<p>${escapeHTML(nr.message)}</p>`;
     }

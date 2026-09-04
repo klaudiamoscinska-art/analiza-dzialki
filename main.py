@@ -60,7 +60,8 @@ retry/fallback helpers in http_utils.py. See HANDOFF.md for the full
 per-service notes (what's confirmed live, known dead ends, etc).
 """
 import asyncio
-from typing import Optional
+import time
+from typing import Any, Awaitable, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -69,8 +70,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
 
-from config import HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL
+from config import (
+    HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, TTL_BUILDINGS, TTL_CADASTRE,
+    TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_NEAREST_ROAD, TTL_UTILITIES, TTL_WATERLOGGING,
+    TTL_WATERWAYS, logger,
+)
 from geo_utils import geod, to_2180
+from services import cache
 from services.cadastre import get_buildings_on_parcel, get_cadastre_basic
 from services.geocoding import (
     geocode_gmina_candidates, geocode_powiat_gmina_prefixes, resolve_address_to_parcels,
@@ -85,6 +91,21 @@ from services.utilities import check_utilities
 from services.valuation import estimate_value, get_ekw_link, get_emapa_link, get_geoportal_link, get_gunb_link
 from services.wfs_search import scan_wfs_for_parcel_number, search_parcels_universal
 from services.zoning import get_zoning
+
+
+async def _timed(label: str, awaitable: Awaitable[dict[str, Any]]) -> dict[str, Any]:
+    """Logs the real wall-clock time each branch of /api/analyze's
+    asyncio.gather actually takes — added 2026-09-04 (performance
+    investigation, see HANDOFF.md and the 'Plan Pamięci Podręcznej'
+    artifact). The timeouts in config.py are configured ceilings, not
+    measurements; this is what turns them into real numbers, and is step
+    one of that plan — everything else (which TTLs actually matter) reads
+    from these logs, not from guesses."""
+    start = time.monotonic()
+    try:
+        return await awaitable
+    finally:
+        logger.info("analyze: %s zajęło %.2fs", label, time.monotonic() - start)
 
 app = FastAPI(title="Analiza Działki GIS")
 app.add_middleware(
@@ -320,16 +341,27 @@ async def analyze(parcel_id: str = Query(default="")):
         area_m2, _perimeter_m = geod.geometry_area_perimeter(geometry)
         area_m2 = abs(area_m2)
 
+        teryt_id = parcel["teryt_id"]
         results = await asyncio.gather(
-            check_landslide(client, geometry),
-            check_utilities(client, cx2180, cy2180),
-            get_cadastre_basic(client, cx2180, cy2180),
-            get_zoning(client, cx2180, cy2180),
-            get_buildings_on_parcel(client, geometry),
-            get_waterways(client, geometry),
-            get_flood_zone(client, cx2180, cy2180),
-            get_waterlogging_risk(client, geometry),
-            get_nearest_municipal_road(client, geometry),
+            _timed("landslide", cache.get_or_fetch(
+                "landslide", teryt_id, TTL_LANDSLIDE, lambda: check_landslide(client, geometry))),
+            _timed("utilities", cache.get_or_fetch(
+                "utilities", teryt_id, TTL_UTILITIES, lambda: check_utilities(client, cx2180, cy2180))),
+            _timed("cadastre", cache.get_or_fetch(
+                "cadastre", teryt_id, TTL_CADASTRE, lambda: get_cadastre_basic(client, cx2180, cy2180))),
+            # Plan zagospodarowania i identyfikacja działki (ULDK) świadomie
+            # NIE są cache'owane — patrz TTL_* w config.py i HANDOFF.md.
+            _timed("zoning", get_zoning(client, cx2180, cy2180)),
+            _timed("buildings", cache.get_or_fetch(
+                "buildings", teryt_id, TTL_BUILDINGS, lambda: get_buildings_on_parcel(client, geometry))),
+            _timed("waterways", cache.get_or_fetch(
+                "waterways", teryt_id, TTL_WATERWAYS, lambda: get_waterways(client, geometry))),
+            _timed("flood_zone", cache.get_or_fetch(
+                "flood_zone", teryt_id, TTL_FLOOD_ZONE, lambda: get_flood_zone(client, cx2180, cy2180))),
+            _timed("waterlogging", cache.get_or_fetch(
+                "waterlogging", teryt_id, TTL_WATERLOGGING, lambda: get_waterlogging_risk(client, geometry))),
+            _timed("nearest_road", cache.get_or_fetch(
+                "nearest_road", teryt_id, TTL_NEAREST_ROAD, lambda: get_nearest_municipal_road(client, geometry))),
         )
     (landslide, utilities, cadastre, zoning, buildings,
      waterways, flood_zone, waterlogging, nearest_road) = results

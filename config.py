@@ -2,6 +2,7 @@
 layer names, HTTP timeouts, and static lookup tables. No logic here beyond
 the module logger — see geo_utils.py, http_utils.py and services/ for that."""
 import logging
+import os
 
 ULDK_URL = "https://uldk.gugik.gov.pl/"
 
@@ -116,6 +117,35 @@ TIMEOUT_MPZP_DETAIL = 12.0  # MPZP/APP GetFeatureInfo detail fetch (wrapped in a
 TIMEOUT_OBREB_SCAN = 10.0  # per-obręb brute-force scan (many parallel short requests)
 
 HTTP_TIMEOUT = TIMEOUT_DEFAULT
+
+# --------------------------------------------------------------------------
+# services/cache.py — per-parcel cache-aside TTLs (seconds), added 2026-09-04
+# after a performance investigation (see the "Plan Pamięci Podręcznej"
+# artifact referenced in HANDOFF.md). Value chosen per how often the real
+# underlying registry actually changes, NOT a single shared number —
+# geological/hydrological hazard maps are revised on legally-mandated
+# multi-year cycles (near-zero risk of a long TTL being wrong), while
+# anything with real decision-relevant risk gets left uncached for now
+# (zoning — a gmina's plan can change mid-negotiation — and the parcel's
+# own ULDK identification) rather than assigned a falsely-reassuring TTL.
+# See the artifact for the full per-service reasoning.
+# --------------------------------------------------------------------------
+CACHE_DB_PATH = os.environ.get("CACHE_DB_PATH", "cache.db")
+
+_DAY = 86400.0
+TTL_LANDSLIDE = 180 * _DAY  # SOPO — geological survey, multi-year revision cycle
+TTL_FLOOD_ZONE = 180 * _DAY  # ISOK — statutory ~6-year revision cycle
+TTL_WATERLOGGING = 180 * _DAY  # PIG-PIB — same geological-survey cadence as SOPO
+TTL_WATERWAYS = 90 * _DAY  # OSM hydrography — essentially never changes
+TTL_UTILITIES = 30 * _DAY  # GESUT — new connections happen, but rarely
+TTL_CADASTRE = 30 * _DAY  # KIEG basic — geodetic updates, rarely
+TTL_NEAREST_ROAD = 30 * _DAY  # OSM road network — rarely changes
+TTL_BUILDINGS = 14 * _DAY  # OSM buildings — new construction is the one thing here that plausibly moves faster
+# Deliberately NOT cached yet: zoning (plan zagospodarowania — the one
+# service where a change inside the TTL window has real decision
+# relevance) and the parcel's own ULDK identification (its "identity" —
+# see HANDOFF.md for why these are being held back until the "dane z:"
+# timestamp + manual refresh UI ships).
 
 OSM_BUILDING_LABELS: dict[str, str] = {
     "house": "budynek mieszkalny jednorodzinny",

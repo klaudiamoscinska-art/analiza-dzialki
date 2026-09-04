@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 53 testy dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 59 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -483,6 +483,81 @@ KIMPZP/KIAPP/KIUT (nazwy i działanie potwierdzone wcześniej na żywo),
 nie mam żadnego potwierdzenia, że taka usługa w ogóle publicznie
 istnieje, więc świadomie tego nie zgadywałam. Do ustalenia z Klaudią,
 zanim ktoś zacznie to implementować.
+
+### Pamięć podręczna (`services/cache.py`) — dodane 2026-09-04
+
+Klaudia poprosiła o zbadanie możliwości poprawy wydajności, słusznie
+podejrzewając, że część danych nie zmienia się codziennie. Opublikowany
+został osobny raport-artefakt „Plan Pamięci Podręcznej" (analiza
+teoretycznego sufitu czasu odpowiedzi — do 62s przy złożeniu
+skonfigurowanych timeoutów — i tabela TTL per usługa), a po dwóch rundach
+pytań Klaudii (jak działa TTL — leniwy cache-aside, NIE cykliczny poller,
+bo przestrzeń kluczy (`teryt_id`) jest ogromna i długoogonowa, poller
+marnowałby pracę na działki, których nikt już nie odwiedzi; i skąd
+pewność że dane są aktualne — patrz niżej) Klaudia zatwierdziła konkretną
+kolejność wdrożenia, która została zrealizowana w całości w jednym PR:
+
+1. **Logowanie realnego czasu** każdej z 9 gałęzi `asyncio.gather` w
+   `/api/analyze` — nowy helper `_timed()` w `main.py`, `logger.info` z
+   nazwą usługi i czasem. To jedyny sposób, żeby liczby z raportu (teraz
+   to sufity z konfiguracji, nie pomiary) stały się faktami.
+2. **`services/cache.py`** — generyczny, leniwy cache-aside na SQLite
+   (`get_or_fetch(service, key, ttl_seconds, fetch)`), klucz =
+   `teryt_id` (naturalna tożsamość działki, współdzielona między różnymi
+   osobami sprawdzającymi tę samą działkę). Cache'uje WYŁĄCZNIE wyniki
+   `status: "ok"` — błąd/timeout usługi rządowej nigdy nie zamraża się w
+   cache'u na cały TTL. Każdy zwrócony wynik (trafienie i świeże
+   pobranie) dostaje `cached` (bool) i `fetched_at` (unix timestamp).
+   Brak dysku trwałego na Render na razie (świadomy zakres v1 — plik
+   SQLite w efemerycznym systemie plików kontenera resetuje się przy
+   każdym deployu, ale nadal pomaga w ciągu jednego dnia/wielu odwiedzin
+   — patrz raport, sekcja 5, dla obu opcji).
+3. **Podłączone z TTL z tabeli w raporcie** — osuwiska/SOPO, powódź/ISOK,
+   podtopienia/PIG-PIB (180 dni — mapy geologiczne/hydrologiczne,
+   ustawowe cykle aktualizacji liczone w latach), cieki wodne/OSM (90
+   dni), media/GESUT, ewidencja/KIEG, droga gminna/OSM (30 dni), budynki
+   /OSM (14 dni — jedyna z "bezpiecznych" usług z realnie krótszym
+   TTL, bo nowa zabudowa to jedyna rzecz w tej grupie, która wiarygodnie
+   może się zmienić szybciej). Stałe `TTL_*` w `config.py`, ten sam
+   wzorzec co istniejące `TIMEOUT_*`.
+   **Świadomie NIE podłączone**: plan zagospodarowania (jedyna usługa z
+   realnym ryzykiem decyzyjnym — gmina może uchwalić nowy plan w trakcie
+   czyjejś decyzji o zakupie) i identyfikacja działki przez ULDK (dana
+   „tożsamościowa"). Zostają live do czasu wdrożenia widocznego
+   timestampu i przycisku odświeżenia (patrz punkt 4) — dopiero wtedy
+   cache dla nich będzie bezpieczny, nie wcześniej.
+4. **„Dane z: [data]" w UI** — `dataAgeNote()` w `app.js`, renderowane
+   pod każdą sekcją, która ma `fetched_at` w odpowiedzi. To NIE jest
+   opcjonalny dodatek: Klaudia wprost zapytała "skąd pewność, że dane są
+   aktualne" — odpowiedzią nie jest "zaufaj TTL-owi", tylko "zawsze
+   widzisz, kiedy dana sekcja faktycznie została pobrana, i sama
+   oceniasz". Przycisk „odśwież teraz" (wymuszenie pominięcia cache'u
+   dla jednej sekcji) jest w raporcie jako kolejny krok, ale NIE został
+   jeszcze zrobiony w tym PR — bez niego jedyny sposób na wymuszenie
+   świeżych danych to poczekać na wygaśnięcie TTL.
+5. **`services/zoning.py::get_zoning` — KIAPP i KIMPZP równolegle, nie
+   sekwencyjnie** (niezależne od cache'u, ale ta sama runda pracy).
+   Wcześniej KIMPZP było próbowane dopiero gdy KIAPP nic nie znalazło
+   (sondowanie GetMap do 15s + szczegóły do 12s, RAZ dla każdego z dwóch
+   źródeł z rzędu) — to był pojedynczy największy udział w teoretycznym
+   suficie czasu odpowiedzi całej appki. Teraz oba źródła pytane
+   naraz przez `asyncio.gather`, ta sama logika pierwszeństwa (KIAPP
+   wygrywa, gdy ma wynik) zachowana, tylko bez płacenia za to czasem.
+
+**Nadal do zrobienia (świadomie odłożone, nie zapomniane)**: przycisk
+„odśwież teraz", cache dla planu zagospodarowania (7 dni, dopiero po
+przycisku odświeżenia) i dla identyfikacji ULDK (7 dni), decyzja o dysku
+trwałym na Render, progresywne renderowanie wyniku. Wszystko to jest w
+pełnej wersji raportu-artefaktu „Plan Pamięci Podręcznej".
+
+11 nowych testów pytest dla `services/cache.py` (fikstura `cache_db` z
+`tmp_path` + `monkeypatch.setattr(cache, "CACHE_DB_PATH", ...)` +
+`cache._reset_for_tests()`) — trafienie, brak w cache'u, wygasły wpis,
+błąd nigdy nie cache'owany, niezależność kluczy/usług. Razem 59 testów.
+`node --check` i `python3 -c "import main"` na zielono. **Rzeczywiste
+przyspieszenie NIE zostało zmierzone na żywo** (te same ograniczenia
+sieciowe co zawsze w tym środowisku) — logi z punktu 1 to pierwszy krok
+do tego, nie coś, co dało się zweryfikować z tego sandboksa.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

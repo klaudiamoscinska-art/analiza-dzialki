@@ -13,7 +13,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import geo_utils
-from services import geocoding, uldk, valuation, wfs_search, zoning
+from services import cache, geocoding, uldk, valuation, wfs_search, zoning
 
 
 # ---------------------------------------------------------------------------
@@ -725,3 +725,111 @@ async def test_get_zoning_attaches_ouz_note_when_no_plan_found_anywhere(monkeypa
     assert result["found"] == "no"
     assert "obszar" in result["note"].lower()
     assert "2026" in result["note"]
+
+
+# ---------------------------------------------------------------------------
+# services.cache — generic SQLite cache-aside, added 2026-09-04 after the
+# performance investigation ("Plan Pamięci Podręcznej"). Lazy cache-aside,
+# NOT a background poller — see the module docstring for why.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def cache_db(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "CACHE_DB_PATH", str(tmp_path / "test_cache.db"))
+    cache._reset_for_tests()
+    yield
+    cache._reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_miss_calls_fetch_and_stores(cache_db):
+    calls = []
+
+    async def fetch():
+        calls.append(1)
+        return {"status": "ok", "value": 42}
+
+    result = await cache.get_or_fetch("svc", "key1", 1000.0, fetch)
+
+    assert len(calls) == 1
+    assert result["value"] == 42
+    assert result["cached"] is False
+    assert "fetched_at" in result
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_hit_skips_fetch(cache_db):
+    calls = []
+
+    async def fetch():
+        calls.append(1)
+        return {"status": "ok", "value": 42}
+
+    await cache.get_or_fetch("svc", "key1", 1000.0, fetch)
+    result = await cache.get_or_fetch("svc", "key1", 1000.0, fetch)
+
+    assert len(calls) == 1  # druga próba nie wywołała fetch ponownie
+    assert result["value"] == 42
+    assert result["cached"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_expired_entry_refetches(cache_db):
+    calls = []
+
+    async def fetch():
+        calls.append(1)
+        return {"status": "ok", "value": len(calls)}
+
+    await cache.get_or_fetch("svc", "key1", 0.0, fetch)  # TTL=0 -> natychmiast "wygasłe"
+    result = await cache.get_or_fetch("svc", "key1", 0.0, fetch)
+
+    assert len(calls) == 2
+    assert result["value"] == 2
+    assert result["cached"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_error_result_not_cached(cache_db):
+    calls = []
+
+    async def fetch():
+        calls.append(1)
+        return {"status": "error", "message": "usługa niedostępna"}
+
+    r1 = await cache.get_or_fetch("svc", "key1", 1000.0, fetch)
+    r2 = await cache.get_or_fetch("svc", "key1", 1000.0, fetch)
+
+    assert len(calls) == 2  # błąd nigdy nie trafia do cache'u, druga próba znów odpytuje
+    assert "cached" not in r1
+    assert r2["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_keys_are_independent(cache_db):
+    async def fetch_a():
+        return {"status": "ok", "value": "a"}
+
+    async def fetch_b():
+        return {"status": "ok", "value": "b"}
+
+    result_a = await cache.get_or_fetch("svc", "parcel-a", 1000.0, fetch_a)
+    result_b = await cache.get_or_fetch("svc", "parcel-b", 1000.0, fetch_b)
+
+    assert result_a["value"] == "a"
+    assert result_b["value"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_services_are_independent(cache_db):
+    async def fetch_x():
+        return {"status": "ok", "value": "x"}
+
+    async def fetch_y():
+        return {"status": "ok", "value": "y"}
+
+    result_x = await cache.get_or_fetch("service-x", "same-key", 1000.0, fetch_x)
+    result_y = await cache.get_or_fetch("service-y", "same-key", 1000.0, fetch_y)
+
+    assert result_x["value"] == "x"
+    assert result_y["value"] == "y"
