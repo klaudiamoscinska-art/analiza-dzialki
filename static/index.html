@@ -35,6 +35,8 @@
     --ok-bg:#e9f5ec;
     --warn:#8a5a00;
     --warn-bg:#fdf3e0;
+    --neutral:#5b6d67;
+    --neutral-bg:#e7ebe9;
     --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
     --sans: 'Inter', -apple-system, system-ui, sans-serif;
   }
@@ -288,6 +290,7 @@
   .cc.risk{ background:var(--danger-bg); color:var(--danger); }
   .cc.warning{ background:var(--warn-bg); color:var(--warn); }
   .cc.ok{ background:var(--ok-bg); color:var(--ok); }
+  .cc.unknown{ background:var(--neutral-bg); color:var(--neutral); }
 
   .check-rows{ margin-bottom:4px; }
   .check-row-link{ display:block; text-decoration:none; color:inherit; padding:9px 0; border-bottom:1px solid var(--line); }
@@ -309,6 +312,7 @@
   .check-row.tier-risk .check-pill{ background:var(--danger-bg); color:var(--danger); }
   .check-row.tier-warning .check-pill{ background:var(--warn-bg); color:var(--warn); }
   .check-row.tier-ok .check-pill{ background:var(--ok-bg); color:var(--ok); }
+  .check-row.tier-unknown .check-pill{ background:var(--neutral-bg); color:var(--neutral); }
 
   /* ---------- LISTA KROKÓW PRZED ZAKUPEM (25-punktowa checklista) ---------- */
   .dd-category{ margin-bottom:14px; }
@@ -828,6 +832,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=30"></script>
+<script src="/static/app.js?v=31"></script>
 </body>
 </html>

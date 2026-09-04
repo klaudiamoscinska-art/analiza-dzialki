@@ -778,6 +778,34 @@ async def test_get_zoning_both_sources_erroring_surfaces_error_not_no_plan(monke
     assert result["status"] == "error"
 
 
+class _FlakyGetMapClient:
+    """Raises httpx.ConnectTimeout on the first call, then returns a valid
+    (non-blank) PNG — reproduces the live bug Klaudia reported 2026-09-04:
+    a KIMPZP GetMap probe hit a brief ConnectTimeout even though the plan
+    layer visibly rendered on the map moments later, and _mpzp_has_plan_drawn
+    used a raw single-shot client.get() with no retry, so that transient
+    hiccup surfaced as a full section failure instead of succeeding on retry."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def get(self, url, params=None, timeout=None, follow_redirects=None):
+        self.calls += 1
+        if self.calls == 1:
+            raise httpx.ConnectTimeout("")
+        return _FakePngResponse(_png_response(50))
+
+
+@pytest.mark.asyncio
+async def test_mpzp_has_plan_drawn_retries_on_connect_timeout():
+    client = _FlakyGetMapClient()
+
+    result = await zoning._mpzp_has_plan_drawn(client, "http://x", "layer", 0.0, 0.0)
+
+    assert result is True
+    assert client.calls == 2
+
+
 # ---------------------------------------------------------------------------
 # services.cache — generic SQLite cache-aside, added 2026-09-04 after the
 # performance investigation ("Plan Pamięci Podręcznej"). Lazy cache-aside,
@@ -924,7 +952,7 @@ def test_build_verdict_all_clean_scores_100_dobra():
     assert result["score"] == 100
     assert result["level"] == "dobra"
     assert result["incomplete_sections"] == []
-    assert result["counts"] == {"risk": 0, "warning": 0, "ok": 9}
+    assert result["counts"] == {"risk": 0, "warning": 0, "ok": 9, "unknown": 0}
     assert all(r["tier"] == "ok" for r in result["rows"])
 
 
@@ -955,13 +983,19 @@ def test_build_verdict_score_never_goes_below_zero():
     assert result["level"] == "wysokie_ryzyko"
 
 
-def test_build_verdict_failed_section_is_incomplete_no_row_no_deduction():
+def test_build_verdict_failed_section_is_incomplete_and_gets_unknown_row():
+    """Fixed 2026-09-04 — Klaudia reported the checklist had NO row at all
+    for a section whose fetch errored (zoning, in her live report), only
+    the one summary sentence above it. A failed section now gets its own
+    'unknown' row (never scored) in addition to the summary line."""
     signals = _clean_signals()
     signals["landslide"] = {"status": "error", "message": "usługa niedostępna"}
     result = verdict.build_verdict(**signals)
     assert result["score"] == 100  # brak danych nie obniża wyniku
     assert "zagrożenie osuwiskowe" in result["incomplete_sections"]
-    assert not any(r["key"] == "landslide" for r in result["rows"])
+    row = _row(result, "landslide")
+    assert row["tier"] == "unknown"
+    assert result["counts"]["unknown"] == 1
 
 
 def test_build_verdict_no_utilities_detected_is_warning():
@@ -1507,7 +1541,7 @@ class _QueueClient:
         self._responses = list(responses)
         self.calls = 0
 
-    async def get(self, url, params=None, timeout=None):
+    async def get(self, url, params=None, timeout=None, follow_redirects=None):
         self.calls += 1
         item = self._responses.pop(0)
         if isinstance(item, Exception):

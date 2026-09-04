@@ -26,6 +26,12 @@ DISCLAIMER = (
 # enough to plausibly rule a parcel out outright; everything else is 'warning'.
 _TIER_POINTS = {"risk": 35, "warning": 10}
 
+# 'unknown' rows (added 2026-09-04) are for sections whose data fetch failed —
+# see add_unknown below. Deliberately never deducts score: a failed fetch is
+# not evidence of a problem on the parcel, only evidence we couldn't check —
+# scoring it like a real finding would be exactly the "no data = risk" mixup
+# this whole checklist exists to avoid.
+
 
 def build_verdict(
     landslide: dict[str, Any], zoning: dict[str, Any], flood_zone: dict[str, Any],
@@ -33,11 +39,14 @@ def build_verdict(
     protected_areas: dict[str, Any], mining_areas: dict[str, Any], air_quality: dict[str, Any],
 ) -> dict[str, Any]:
     """Returns score (0-100), level, the full row list (ok included), a
-    3-way tier count, which sections had no usable data ('incomplete'),
-    and the disclaimer. A section that simply failed to fetch never
-    produces a row or a score deduction — it's surfaced separately in
-    'incomplete_sections' so 'we don't know' is never silently shown or
-    scored as 'it's fine'."""
+    4-way tier count (risk/warning/ok/unknown), which sections had no
+    usable data ('incomplete_sections', kept for the summary line above
+    the checklist), and the disclaimer. A section that failed to fetch
+    gets its own 'unknown' row (added 2026-09-04 — previously it produced
+    no row at all, only the one summary line, so a failed section was
+    invisible in the checklist itself) — never a score deduction, since
+    'we don't know' is not evidence of 'it's risky' any more than it's
+    evidence of 'it's fine'."""
     score = 100
     rows: list[dict[str, str]] = []
     incomplete: list[str] = []
@@ -45,8 +54,18 @@ def build_verdict(
     def add_row(key: str, label: str, tier: str, text: str, points: Optional[int] = None) -> None:
         nonlocal score
         rows.append({"key": key, "label": label, "tier": tier, "text": text})
-        if tier != "ok":
+        if tier not in ("ok", "unknown"):
             score -= points if points is not None else _TIER_POINTS[tier]
+
+    def add_unknown(key: str, label: str, name: str, result: dict[str, Any]) -> None:
+        """A section that failed to fetch still gets a row — added
+        2026-09-04 after Klaudia reported the checklist simply had no line
+        at all for zoning when its fetch errored, even though the section
+        card below clearly showed the failure. The row links to that same
+        card (same as every other tier) so the detail is one click away —
+        this text stays generic on purpose."""
+        incomplete.append(name)
+        add_row(key, label, "unknown", "Nie udało się pobrać danych — szczegóły w sekcji niżej.")
 
     if landslide.get("status") == "ok":
         has = landslide.get("has_landslide")
@@ -54,7 +73,7 @@ def build_verdict(
                 "Wykryto osuwisko lub teren zagrożony osuwiskiem (SOPO PIG-PIB)." if has
                 else "Teren stabilny geologicznie — brak osuwisk w rejestrze SOPO.", points=40 if has else None)
     else:
-        incomplete.append("zagrożenie osuwiskowe")
+        add_unknown("landslide", "Osuwiska", "zagrożenie osuwiskowe", landslide)
 
     if flood_zone.get("status") == "ok":
         in_zone = flood_zone.get("in_flood_zone")
@@ -63,7 +82,7 @@ def build_verdict(
                 f"Działka w strefie zalewowej (ISOK){f', głębokość: {depth}' if depth else ''}." if in_zone
                 else "Brak strefy zalewowej ISOK w tym miejscu.")
     else:
-        incomplete.append("strefa zalewowa")
+        add_unknown("flood_zone", "Powódź", "strefa zalewowa", flood_zone)
 
     if waterlogging.get("status") == "ok":
         at_risk = waterlogging.get("at_risk")
@@ -71,7 +90,7 @@ def build_verdict(
                 "Teren podatny na podtopienia (wody gruntowe, PIG-PIB)." if at_risk
                 else "Brak wykrytego ryzyka podtopień.", points=15 if at_risk else None)
     else:
-        incomplete.append("ryzyko podtopień")
+        add_unknown("waterlogging", "Podtopienia", "ryzyko podtopień", waterlogging)
 
     if protected_areas.get("status") == "ok":
         areas = protected_areas.get("areas") or []
@@ -80,7 +99,7 @@ def build_verdict(
                 f"W pobliżu działki obszary chronione: {names}." if areas
                 else "Brak obszarów chronionych GDOŚ w tym miejscu.")
     else:
-        incomplete.append("obszary chronione przyrody")
+        add_unknown("protected_areas", "Przyroda", "obszary chronione przyrody", protected_areas)
 
     if mining_areas.get("status") == "ok":
         has_mining = mining_areas.get("has_mining_area")
@@ -88,7 +107,7 @@ def build_verdict(
                 "Działka w terenie/obszarze górniczym (MIDAS PIG-PIB)." if has_mining
                 else "Brak wykrytych terenów/obszarów górniczych.")
     else:
-        incomplete.append("tereny górnicze")
+        add_unknown("mining_areas", "Tereny górnicze", "tereny górnicze", mining_areas)
 
     if zoning.get("status") == "ok":
         no_plan = zoning.get("found") == "no"
@@ -99,7 +118,7 @@ def build_verdict(
         add_row("zoning", "Plan zagospodarowania", "warning",
                 "Działka jest objęta planem, ale szczegóły nie zostały pobrane — sprawdź sekcję niżej.", points=0)
     else:
-        incomplete.append("plan zagospodarowania")
+        add_unknown("zoning", "Plan zagospodarowania", "plan zagospodarowania", zoning)
 
     if nearest_road.get("status") == "ok":
         if nearest_road.get("found") == "no":
@@ -114,7 +133,7 @@ def build_verdict(
                     + (" (najbliższa jest wyższej kategorii, brak drogi gminnej w pobliżu)." if fallback else "."),
                     points=5 if fallback else None)
     else:
-        incomplete.append("odległość do drogi")
+        add_unknown("nearest_road", "Dojazd", "odległość do drogi", nearest_road)
 
     if utilities.get("status") == "ok":
         util_list = utilities.get("utilities", [])
@@ -123,7 +142,7 @@ def build_verdict(
                 f"Wykryto {len(present)} z {len(util_list)} typów mediów w pobliżu działki." if present
                 else "Nie wykryto żadnych mediów w pobliżu działki (GESUT).", points=15 if not present else None)
     else:
-        incomplete.append("media / uzbrojenie terenu")
+        add_unknown("utilities", "Media", "media / uzbrojenie terenu", utilities)
 
     if air_quality.get("status") == "ok":
         dist_km = air_quality["distance_m"] / 1000
@@ -134,7 +153,7 @@ def build_verdict(
         # zdrowotnych WHO/UE, więc appka nie udaje oceny ryzyka, tylko
         # pokazuje surowy odczyt, tak jak konkurencja.
     else:
-        incomplete.append("jakość powietrza")
+        add_unknown("air_quality", "Powietrze", "jakość powietrza", air_quality)
 
     score = max(0, min(100, score))
     if score >= 80:
@@ -144,7 +163,7 @@ def build_verdict(
     else:
         level = "wysokie_ryzyko"
 
-    counts = {"risk": 0, "warning": 0, "ok": 0}
+    counts = {"risk": 0, "warning": 0, "ok": 0, "unknown": 0}
     for r in rows:
         counts[r["tier"]] += 1
 

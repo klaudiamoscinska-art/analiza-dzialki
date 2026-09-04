@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 109 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 110 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -1265,6 +1265,56 @@ nie podnieść.
 bardzo małą wartość + zawieszona pierwsza funkcja kaskady, potwierdza że
 `resolve_parcel()` rzuca czysty `HTTPException(504, ...)` z nazwą
 zapytania w treści, zamiast wisieć bez końca.
+
+### KIMPZP ConnectTimeout bez retry + brak wiersza w checkliście dla sekcji niepełnych — dodane 2026-09-04
+
+Klaudia zgłosiła na żywo (działka "Korbielów 3917/5") dwie osobne
+usterki widoczne na jednym zrzucie ekranu: (1) plan zagospodarowania
+pokazywał błąd `ConnectTimeout` mimo że warstwa planu WYRAŹNIE renderowała
+się na mapie chwilę później (czyli usługa faktycznie odpowiadała, tylko
+nie za pierwszym razem), i (2) 3 sekcje, które przez to (i przez inne,
+przejściowe błędy) zakończyły się statusem innym niż `ok`, w ogóle nie
+miały wiersza w checkliście nad listą "kroków przed zakupem" — było tylko
+jedno zdanie podsumowujące ("Niepełne dane: ...") nad kartą wyniku, żadnego
+śladu w samej liście statusów.
+
+**Naprawa 1 — retry dla `_mpzp_has_plan_drawn()` (`services/zoning.py`)**:
+ta funkcja (szybki podgląd GetMap, używany PRZED znacznie mniej
+niezawodnym `GetFeatureInfo`) robiła dotąd surowe, jednorazowe
+`client.get()` bez żadnego retry — każda przejściowa usterka sieciowa do
+`mapy.geoportal.gov.pl` (ten sam realny ryzyko, już udokumentowane dla
+INNYCH usług WMS/WFS tej appki) od razu kończyła się pełnym błędem sekcji.
+Teraz używa współdzielonego `http_utils._get_with_retry()` (ta sama
+ochrona, którą miały już zapytania WFS powiatowe) — dodano do niego
+parametr `follow_redirects: bool = False` (potrzebny tu, bo GetMap czasem
+przechodzi przez przekierowanie), domyślnie wyłączony, więc nic innego się
+nie zmienia. Nowy test (`test_mpzp_has_plan_drawn_retries_on_connect_timeout`)
+symuluje `httpx.ConnectTimeout` przy pierwszej próbie i sukces przy
+drugiej — potwierdza, że funkcja teraz zwraca poprawny wynik zamiast
+rzucać błąd.
+
+**Naprawa 2 — wiersz "BRAK DANYCH" dla sekcji niepełnych
+(`services/verdict.py`, `static/app.js`, `static/index.html`)**: dodany
+nowy, neutralny poziom `"unknown"` (obok istniejących `risk`/`warning`/
+`ok`) — **nigdy nie odejmuje punktów** (świadomie: brak danych to nie
+dowód ryzyka, tak samo jak nie jest dowodem "wszystko w porządku" — to
+właśnie filozofia, dla której ta checklista w ogóle istnieje). Każda
+sekcja, która wcześniej trafiała tylko do `incomplete_sections` (bez
+żadnego wiersza), teraz DODATKOWO dostaje wiersz w checkliście z etykietą
+sekcji, szarą plakietką "BRAK DANYCH" i linkiem do tej samej karty
+szczegółów niżej (identyczny mechanizm jak dla pozostałych wierszy) —
+`incomplete_sections` i zdanie podsumowujące nad kartą wyniku zostały bez
+zmian, to uzupełnienie, nie zamiana. Zmiany frontendu: `pillLabel.unknown`,
+kolejność sortowania (`risk, warning, unknown, ok`), nowy token kolorów
+`--neutral`/`--neutral-bg` i CSS dla `.cc.unknown` / `.check-row.tier-unknown`.
+`counts` w odpowiedzi API ma teraz 4 klucze zamiast 3
+(`{risk, warning, ok, unknown}`). Cache-bust: `app.js?v=31`,
+`CACHE_NAME` service workera → `v23`.
+
+Istniejący test dla sekcji, która się nie udała, przemianowany i
+rozszerzony (`test_build_verdict_failed_section_is_incomplete_and_gets_unknown_row`)
+— teraz potwierdza zarówno brak odjęcia punktów, jak i obecność nowego
+wiersza `tier: "unknown"`. Łącznie 110 testów pytest.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
