@@ -17,7 +17,10 @@ measurement stands are MANUAL (lab-filter based) and never return
 anything from the live-data endpoint — data/getData simply comes back
 empty for those — so this tries several nearest candidates in order, not
 just the closest one, and skips silently past any that have no working
-automatic sensor for PM2.5 or PM10."""
+automatic sensor for PM2.5 or PM10. A station is only skipped once BOTH
+of its own sensors (if it has both) have been tried — fixed 2026-09-04,
+it used to abandon a station on a PM2.5 miss alone, without trying that
+same station's PM10 sensor, needlessly reporting a farther station."""
 from typing import Any, Optional
 
 import httpx
@@ -80,7 +83,12 @@ async def _nearest_stations(client: httpx.AsyncClient, lon: float, lat: float) -
     return ranked[:_MAX_STATION_CANDIDATES]
 
 
-async def _find_pollutant_sensor(client: httpx.AsyncClient, station_id: int) -> Optional[dict[str, Any]]:
+async def _find_pollutant_sensors(client: httpx.AsyncClient, station_id: int) -> list[dict[str, Any]]:
+    """Returns every preferred-pollutant sensor this station has, in
+    preference order (PM2.5 first) — a station commonly has both, and
+    _latest_value can still come back empty for one of them (manual
+    sensor, or just no fresh reading), so the caller tries each of a
+    station's own sensors before giving up on that station entirely."""
     resp = await client.get(f"{GIOS_API_URL}/station/sensors/{station_id}", timeout=TIMEOUT_GIOS)
     resp.raise_for_status()
     data = resp.json()
@@ -90,10 +98,10 @@ async def _find_pollutant_sensor(client: httpx.AsyncClient, station_id: int) -> 
         sensor_id = s.get("Identyfikator stanowiska")
         if code and sensor_id is not None:
             by_code[code] = sensor_id
-    for pollutant in _PREFERRED_POLLUTANTS:
-        if pollutant in by_code:
-            return {"sensor_id": by_code[pollutant], "pollutant": pollutant}
-    return None
+    return [
+        {"sensor_id": by_code[pollutant], "pollutant": pollutant}
+        for pollutant in _PREFERRED_POLLUTANTS if pollutant in by_code
+    ]
 
 
 async def _latest_value(client: httpx.AsyncClient, sensor_id: int) -> Optional[dict[str, Any]]:
@@ -122,23 +130,22 @@ async def get_air_quality(client: httpx.AsyncClient, lon: float, lat: float) -> 
 
     for station in candidates:
         try:
-            sensor = await _find_pollutant_sensor(client, station["id"])
-            if sensor is None:
-                continue
-            reading = await _latest_value(client, sensor["sensor_id"])
-            if reading is None:
-                continue
-            distance_m = geod.inv(lon, lat, station["lon"], station["lat"])[2]
-            return {
-                "status": "ok",
-                "station_name": station["name"],
-                "distance_m": round(distance_m),
-                "pollutant": sensor["pollutant"],
-                "value": reading["value"],
-                "unit": "µg/m³",
-                "measured_at": reading["measured_at"],
-                "attribution": ATTRIBUTION,
-            }
+            sensors = await _find_pollutant_sensors(client, station["id"])
+            for sensor in sensors:
+                reading = await _latest_value(client, sensor["sensor_id"])
+                if reading is None:
+                    continue
+                distance_m = geod.inv(lon, lat, station["lon"], station["lat"])[2]
+                return {
+                    "status": "ok",
+                    "station_name": station["name"],
+                    "distance_m": round(distance_m),
+                    "pollutant": sensor["pollutant"],
+                    "value": reading["value"],
+                    "unit": "µg/m³",
+                    "measured_at": reading["measured_at"],
+                    "attribution": ATTRIBUTION,
+                }
         except Exception:
             logger.warning("get_air_quality: stacja %s pominięta po błędzie", station.get("id"), exc_info=True)
             continue

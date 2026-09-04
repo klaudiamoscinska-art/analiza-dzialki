@@ -30,24 +30,32 @@ async def _get_with_retry(
     """Thin retry wrapper for connection/timeout failures — the failure mode
     confirmed (HANDOFF.md section 4) to be transient for individual powiat
     WFS servers, which are independently operated and occasionally slow or
-    briefly unreachable. Does NOT retry a response that came back successfully
-    but with an error body (e.g. WFS ExceptionReport) — that's a real answer
-    from a reachable server, not the kind of flakiness this helper is for,
-    and the caller already handles those bodies itself."""
+    briefly unreachable. Also retries a 5xx HTTP status (fixed 2026-09-04 —
+    an overloaded powiat server returning 503/500 used to fail immediately,
+    skipping the one retry this helper exists to provide), but NOT a 4xx —
+    that's a real, presumably permanent answer about this specific request
+    (bad params, not found), not the kind of flakiness worth retrying. Also
+    does NOT retry a response that came back HTTP 200 but with an error body
+    (e.g. WFS ExceptionReport) — that's a real answer from a reachable
+    server too, and the caller already handles those bodies itself."""
     last_exc: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         try:
             resp = await client.get(url, params=params, timeout=timeout)
             resp.raise_for_status()
             return resp
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500:
+                raise
+            last_exc = exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             last_exc = exc
-            logger.warning(
-                "GET %s: próba %d/%d nieudana (%s: %s)",
-                url, attempt + 1, max_retries + 1, type(exc).__name__, exc,
-            )
-            if attempt < max_retries:
-                await asyncio.sleep(retry_delay_s)
+        logger.warning(
+            "GET %s: próba %d/%d nieudana (%s: %s)",
+            url, attempt + 1, max_retries + 1, type(last_exc).__name__, last_exc,
+        )
+        if attempt < max_retries:
+            await asyncio.sleep(retry_delay_s)
     assert last_exc is not None
     raise last_exc
 

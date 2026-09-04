@@ -126,11 +126,29 @@ async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) ->
     Plan Ogólny / OUZ rule that took effect 2026-09-01 (added 2026-09-03,
     see HANDOFF.md) — 'no MPZP' used to mean 'ask for warunki zabudowy
     freely', which is no longer true, and this is the one place in the app
-    where someone would otherwise walk away with that outdated assumption."""
+    where someone would otherwise walk away with that outdated assumption.
+
+    'KIAPP wins whenever it has one' means a REAL result (ok/partial), not
+    merely 'not None' — fixed 2026-09-04: a transient KIAPP failure (an
+    'error' dict, also not None) used to short-circuit here and mask a
+    KIMPZP result that had concurrently succeeded with real plan data,
+    throwing away the one section the module docstring calls out as most
+    decision-relevant. An error is now returned only if NEITHER source
+    produced real data — and even then, preferred over the plain 'no plan'
+    note, since 'a source failed' and 'both sources confirmed nothing here'
+    are different findings that shouldn't collapse into the same message."""
     kiapp_result, kimpzp_result = await asyncio.gather(
         _try_zoning_source(client, KIAPP_URL, KIAPP_LAYERS, x_2180, y_2180, "Rejestr Urbanistyczny/APP"),
         _try_zoning_source(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, "MPZP (KIMPZP)"),
     )
+
+    def _has_real_data(result: Optional[dict[str, Any]]) -> bool:
+        return result is not None and result.get("status") != "error"
+
+    if _has_real_data(kiapp_result):
+        return kiapp_result
+    if _has_real_data(kimpzp_result):
+        return kimpzp_result
     if kiapp_result is not None:
         return kiapp_result
     if kimpzp_result is not None:
