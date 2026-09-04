@@ -690,7 +690,7 @@
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 
-    // 0 — Werdykt: jeden syntetyczny wynik na górze, łączący sygnały
+    // Werdykt: jeden syntetyczny wynik na górze, łączący sygnały
     // pokazane osobno niżej. Patrz services/verdict.py.
     const v = data.verdict;
     if (v) {
@@ -719,20 +719,18 @@
         </div>`;
     }
 
-    if (p.emapa_link) {
-      html += `<a class="link-out-btn" href="${p.emapa_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska.e-mapa.net →</a>`;
-    }
-
-    if (p.geoportal_link) {
-      html += `<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:10px;">Zobacz na Polska mapa (geoportal.gov.pl) →</a>`;
-    }
-
+    const linkButtons = [];
+    if (p.emapa_link) linkButtons.push(`<a class="link-out-btn" href="${p.emapa_link}" target="_blank" rel="noopener noreferrer">e-mapa →</a>`);
+    if (p.geoportal_link) linkButtons.push(`<a class="link-out-btn" href="${p.geoportal_link}" target="_blank" rel="noopener noreferrer">Geoportal →</a>`);
     if (data.centroid && typeof data.centroid.lat === "number" && typeof data.centroid.lon === "number") {
       const gmapsUrl = `https://www.google.com/maps?q=${data.centroid.lat},${data.centroid.lon}`;
-      html += `<a class="link-out-btn" href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" style="display:block;margin-bottom:14px;">Zobacz na Google Maps →</a>`;
+      linkButtons.push(`<a class="link-out-btn" href="${gmapsUrl}" target="_blank" rel="noopener noreferrer">Google Maps →</a>`);
+    }
+    if (linkButtons.length) {
+      html += `<div class="link-row">${linkButtons.join("")}</div>`;
     }
 
-    // 1 — Ewidencja gruntów i budynków
+    // Ewidencja gruntów i budynków
     const cad = data.cadastre;
     const bld = data.buildings;
     let egibInner = "";
@@ -770,10 +768,11 @@
       egibInner += `<p class="disclaimer">${escapeHTML(bld.message)}</p>`;
     }
     egibInner += dataAgeNote(bld);
-    html += `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
+    const cardEgib = `<div class="card muted"><h3>Ewidencja gruntów i budynków</h3>${egibInner}</div>`;
 
-    // 2 — Zagrożenie osuwiskowe
+    // Zagrożenie osuwiskowe
     const ls = data.landslide;
+    let cardLandslide;
     if (ls.status === "ok") {
       const cats =
         ls.matched_categories && ls.matched_categories.length
@@ -781,16 +780,16 @@
               ls.matched_categories.join(", ")
             )}</p>`
           : "";
-      html += ls.has_landslide
+      cardLandslide = ls.has_landslide
         ? `<div class="card danger"><h3>Zagrożenie osuwiskowe</h3><p>WYKRYTO OSUWISKO / TEREN ZAGROŻONY</p>${cats}${dataAgeNote(
             ls
           )}</div>`
         : `<div class="card ok"><h3>Zagrożenie osuwiskowe</h3><p>BRAK ZAGROŻEŃ OSUWISKOWYCH</p>${dataAgeNote(ls)}</div>`;
     } else {
-      html += cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
+      cardLandslide = cardHTML({ title: "Zagrożenie osuwiskowe (SOPO PIG-PIB)", text: ls.message });
     }
 
-    // 3 — Media / uzbrojenie terenu (GESUT) — chip grid
+    // Media / uzbrojenie terenu (GESUT) — chip grid
     const ut = data.utilities;
     let utInner = "";
     if (ut.status === "ok") {
@@ -807,9 +806,9 @@
       utInner = `<p>${escapeHTML(ut.message)}</p>`;
     }
     utInner += dataAgeNote(ut);
-    html += `<div class="card muted"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
+    const cardUtilities = `<div class="card muted"><h3>Media / uzbrojenie terenu (GESUT)</h3>${utInner}</div>`;
 
-    // 4 — Hydrologia i zagrożenie powodziowe
+    // Hydrologia i zagrożenie powodziowe
     const hy = data.hydrology;
     let hyInner = "";
     const fz = hy.flood_zone;
@@ -843,9 +842,9 @@
       hyInner += `<p class="disclaimer">Brak cieków wodnych w promieniu 400 m.</p>`;
     }
     hyInner += dataAgeNote(ww);
-    html += `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
+    const cardHydrology = `<div class="card muted"><h3>Hydrologia i zagrożenie powodziowe</h3>${hyInner}</div>`;
 
-    // 4c — Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
+    // Obszary chronione (GDOŚ), tereny górnicze (MIDAS) i hałas
     const pa = data.protected_areas;
     const ma = data.mining_areas;
     let natInner = "";
@@ -876,9 +875,9 @@
       natInner += `<p class="disclaimer" style="margin-top:8px;">${escapeHTML(ma.message)}</p>`;
     }
     natInner += `<p class="disclaimer" style="margin-top:8px;">Hałas: w Polsce nie ma jednego krajowego źródła danych o mapach akustycznych (osobne mapy dla każdego dużego miasta/drogi/linii kolejowej) — jeśli działka leży w większej aglomeracji lub przy głównej drodze, sprawdź mapę hałasu właściwego miasta osobno.</p>`;
-    html += `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
+    const cardNature = `<div class="card muted"><h3>Obszary chronione i geologia</h3>${natInner}</div>`;
 
-    // 4b — Odległość do najbliższej drogi gminnej
+    // Odległość do najbliższej drogi gminnej
     const nr = data.nearest_road;
     let nrInner = "";
     if (nr.status === "ok" && nr.found === "yes") {
@@ -897,9 +896,9 @@
     } else {
       nrInner = `<p>${escapeHTML(nr.message)}</p>`;
     }
-    html += `<div class="card muted"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
+    const cardRoad = `<div class="card muted"><h3>Odległość do drogi gminnej</h3>${nrInner}</div>`;
 
-    // 5 — Plany zagospodarowania (MPZP), tabular
+    // Plany zagospodarowania (MPZP), tabular
     const zon = data.zoning;
     let zonInner = "";
     if (zon.status === "ok") {
@@ -926,28 +925,29 @@
     } else {
       zonInner = `<p>${escapeHTML(zon.message)}</p>`;
     }
-    html += `<div class="card muted"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
+    const cardZoning = `<div class="card muted"><h3>Plany zagospodarowania</h3>${zonInner}</div>`;
 
-    // 6 — Pozwolenia na budowę (GUNB/RWDZ)
-    html += `
+    // Pozwolenia na budowę (GUNB/RWDZ)
+    const cardPermits = `
       <div class="card muted">
         <h3>Pozwolenia na budowę (GUNB / RWDZ)</h3>
         <p>Rejestr RWDZ nie udostępnia otwartego API (wyszukiwanie chronione CAPTCHA) — dane trzeba sprawdzić ręcznie.</p>
         <a class="link-out-btn" href="${data.permits.gunb_link}" target="_blank" rel="noopener noreferrer">Sprawdź w rejestrze GUNB →</a>
       </div>`;
 
-    // 6b — Księga wieczysta
-    html += `
+    // Księga wieczysta
+    const cardEkw = `
       <div class="card muted">
         <h3>Księga wieczysta</h3>
         <p>Stan prawny działki (właściciel, obciążenia, hipoteki, służebności) sprawdzisz w oficjalnej przeglądarce ksiąg wieczystych Ministerstwa Sprawiedliwości — potrzebny będzie numer księgi (zwykle w akcie notarialnym albo wypisie z rejestru gruntów).</p>
         <a class="link-out-btn" href="${data.land_registry.ekw_link}" target="_blank" rel="noopener noreferrer">Otwórz przeglądarkę ksiąg wieczystych →</a>
       </div>`;
 
-    // 7 — Wycena statystyczna (land + buildings, split)
+    // Wycena statystyczna (land + buildings, split)
     const val = data.valuation;
+    let cardValuation;
     if (val.status === "ok") {
-      html += `
+      cardValuation = `
         <div class="card value-card">
           <p class="eyebrow">Szacunkowa wartość działki (grunt)</p>
           <p class="amount">${fmtPLN(val.land.value_pln)}</p>
@@ -956,7 +956,7 @@
       )})</p>
         </div>`;
       if (val.buildings) {
-        html += `
+        cardValuation += `
           <div class="card value-card secondary">
             <p class="eyebrow">Szacunkowa wartość budynków</p>
             <p class="amount">${fmtPLN(val.buildings.value_pln)}</p>
@@ -965,10 +965,31 @@
         } zł/m² (${val.buildings.building_count} budynek/-ów)</p>
           </div>`;
       }
-      html += `<p class="disclaimer">Wyceny mają charakter wyłącznie orientacyjny i statystyczny — nie są operatem szacunkowym rzeczoznawcy i nie mogą być podstawą decyzji finansowych lub prawnych. Wartość budynków to bardzo uproszczony szacunek na podstawie powierzchni zabudowy, bez uwzględnienia liczby pięter, stanu czy standardu wykończenia.</p>`;
+      cardValuation += `<p class="disclaimer">Wyceny mają charakter wyłącznie orientacyjny i statystyczny — nie są operatem szacunkowym rzeczoznawcy i nie mogą być podstawą decyzji finansowych lub prawnych. Wartość budynków to bardzo uproszczony szacunek na podstawie powierzchni zabudowy, bez uwzględnienia liczby pięter, stanu czy standardu wykończenia.</p>`;
     } else {
-      html += cardHTML({ title: "Wycena statystyczna", text: val.message });
+      cardValuation = cardHTML({ title: "Wycena statystyczna", text: val.message });
     }
+
+    // Wynik pogrupowany w sekcje zamiast jednej kolumny jednakowych kart —
+    // patrz .section-group w index.html. Domyślnie rozwinięte (open), żeby
+    // nic nie było ukryte przy pierwszym wejściu, ale ze zwijaniem dla
+    // czytelności przy dłuższym wyniku.
+    html += `<details class="section-group" open>
+      <summary>Plany, stan prawny i ewidencja</summary>
+      ${cardZoning}${cardEkw}${cardEgib}
+    </details>`;
+    html += `<details class="section-group" open>
+      <summary>Ryzyka środowiskowe</summary>
+      ${cardLandslide}${cardHydrology}${cardNature}
+    </details>`;
+    html += `<details class="section-group" open>
+      <summary>Media i dostęp do drogi</summary>
+      ${cardUtilities}${cardRoad}
+    </details>`;
+    html += `<details class="section-group" open>
+      <summary>Wycena i pozwolenia</summary>
+      ${cardValuation}${cardPermits}
+    </details>`;
 
     results.innerHTML = html;
   }
