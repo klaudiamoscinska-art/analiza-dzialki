@@ -1621,6 +1621,25 @@ async def test_get_with_retry_exhausts_retries_and_raises():
     assert client.calls == 2
 
 
+@pytest.mark.asyncio
+async def test_get_with_retry_logs_elapsed_time_of_failed_attempt(caplog):
+    # Diagnostic step 1 from HANDOFF.md's MPZP ConnectTimeout investigation
+    # (added 2026-09-04) — a failed attempt's log line must include how long
+    # it actually took, so a future live report can distinguish "genuinely
+    # burned the whole timeout" from "failed almost instantly" (two
+    # different root causes, needing two different fixes).
+    client = _QueueClient([httpx.ConnectTimeout("boom"), _http_response(200)])
+
+    with caplog.at_level("WARNING"):
+        resp = await http_utils._get_with_retry(client, "http://x", params={}, timeout=1.0, retry_delay_s=0)
+
+    assert resp.status_code == 200
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "ConnectTimeout" in warnings[0]
+    assert re.search(r"po \d+\.\d+s", warnings[0]), warnings[0]
+
+
 # ---------------------------------------------------------------------------
 # config.TIMEOUT_OVERPASS vs. the in-query "[timeout:N]" directives in
 # services/nearby_features.py. Fixed 2026-09-04, reported live by Klaudia
@@ -1877,3 +1896,55 @@ def test_analyze_and_analyze_stream_agree_on_sections_and_derived_fields(monkeyp
     assert meta_payload["area_m2"] == plain_data["area_m2"]
     assert meta_payload["permits"] == plain_data["permits"]
     assert meta_payload["land_registry"] == plain_data["land_registry"]
+
+
+# ---------------------------------------------------------------------------
+# main._get_gugik_http_client() — diagnostic step 2 from HANDOFF.md's MPZP
+# ConnectTimeout investigation (added 2026-09-04): a second, IPv4-forced
+# httpx.AsyncClient used ONLY for services/zoning.py's calls to
+# mapy.geoportal.gov.pl, kept separate from the shared client used by every
+# other service (no evidence those have the same problem).
+# ---------------------------------------------------------------------------
+
+def test_get_gugik_http_client_forces_ipv4_and_is_separate_from_shared_client():
+    main._http_client = None
+    main._gugik_http_client = None
+    try:
+        general = main._get_http_client()
+        gugik = main._get_gugik_http_client()
+        assert gugik is not general
+        # local_address="0.0.0.0" is the documented httpcore trick that forces
+        # an IPv4-only connection (binding to 0.0.0.0 is only valid for an
+        # AF_INET socket) — confirmed by reading httpcore's own
+        # AnyIOBackend.connect_tcp source, not guessed.
+        assert gugik._transport._pool._local_address == "0.0.0.0"
+        # Calling again must return the SAME instances (lazy singletons),
+        # not open a fresh connection pool per call.
+        assert main._get_http_client() is general
+        assert main._get_gugik_http_client() is gugik
+    finally:
+        main._http_client = None
+        main._gugik_http_client = None
+
+
+def test_analyze_uses_gugik_client_only_for_zoning(monkeypatch, cache_db):
+    _patch_all_sections_ok(monkeypatch)
+    seen_clients = {}
+
+    async def capture_zoning(client, _cx, _cy):
+        seen_clients["zoning"] = client
+        return {"status": "ok"}
+
+    async def capture_landslide(client, _geometry):
+        seen_clients["landslide"] = client
+        return {"status": "ok"}
+
+    monkeypatch.setattr(main, "get_zoning", capture_zoning)
+    monkeypatch.setattr(main, "check_landslide", capture_landslide)
+
+    with TestClient(main.app) as client:
+        resp = client.get("/api/analyze?parcel_id=146501_1.0001.1/2")
+        assert resp.status_code == 200
+        assert seen_clients["zoning"] is main._gugik_http_client
+        assert seen_clients["landslide"] is main._http_client
+        assert seen_clients["zoning"] is not seen_clients["landslide"]
