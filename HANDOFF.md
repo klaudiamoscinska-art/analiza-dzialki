@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 76 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 81 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -730,6 +730,82 @@ sekcji, progresywne renderowanie (patrz P2 w artefakcie "Plan Pamięci
 Podręcznej" — to osobna, większa zmiana architektoniczna). Jeśli Klaudia
 zechce iść dalej niż ten pierwszy krok, to naturalne miejsce na pełny
 redesign wizualny jako osobną decyzję.
+
+### Lista statusów (checklist) + lista kroków przed zakupem — dodane 2026-09-04
+
+Po poprzedniej rundzie (grupowanie w sekcje) Klaudia przesłała 4 realne
+zrzuty ekranu darmowej oceny Działkopedii ORAZ pełny PDF tej oceny (nie
+płatnego Audytu — bezpłatny „Ocena działki", ale ze szczegółową treścią,
+nie tylko UI). To dało pierwszy raz w tej analizie konkurencji prawdziwą,
+nie zgadywaną treść (poprzedni raport-artefakt „Rozpoznanie Działkopedii"
+opierał się wyłącznie na WebSearch, bo bezpośredni dostęp jest
+zablokowany w tym środowisku).
+
+**Kluczowe odkrycie z PDF-a**: ich cały wynik to zwarta lista ~14 wierszy
+(etykieta · pill RYZYKO/UWAGA/OK · jedno zdanie), z licznikiem na górze
+(np. „4 do sprawdzenia · 9 bez zastrzeżeń · 1 ryzyko") — dokładnie to, co
+Klaudia miała na myśli mówiąc "nie pokazuje tak ładnie". To nie wymagało
+ŻADNYCH nowych danych — appka miała już prawie wszystkie te sygnały,
+tylko rozbite na osobne karty zamiast jednej listy.
+
+**`services/verdict.py::build_verdict()` przebudowany** (dodane
+`mining_areas` jako nowy parametr, WYMAGANY — main.py zaktualizowany):
+zamiast zwracać tylko `flags` (lista TYLKO problemów), teraz zwraca
+`rows` — pełną listę WSZYSTKICH sprawdzonych sygnałów, łącznie z tymi
+"OK" (dokładnie jak w PDF-ie Działkopedii) — plus `counts`
+(`{"risk":n,"warning":n,"ok":n}`). Każdy sygnał interpretowany RAZ (nowy
+helper `add_row()`) — ta sama interpretacja decyduje i o tym, jaki wiersz
+się pokazuje, i o tym, ile punktów odjąć, więc te dwie rzeczy nie mogą
+się rozjechać (wcześniej `flag()` robił tylko to drugie, dla samych
+problemów). Wagi punktowe zachowane z poprzedniej wersji (osuwisko=40,
+powódź=35, drogi brak=20, podtopienia/media-brak=15, przyroda/plan/
+kopalnia=10, drogi-fallback=5) — jawnie przekazywane jako `points=`,
+NIE spłaszczone do dwóch poziomów, żeby nie stracić wcześniej
+przemyślanego różnicowania wagi w obrębie tej samej kategorii "warning".
+Stary klucz `flags` USUNIĘTY z odpowiedzi (nic poza tym appką go nie
+konsumowało) — 9 testów pytest zaktualizowanych pod nowy kształt.
+
+**Nowy `services/due_diligence.py::build_due_diligence_checklist()`** —
+25-punktowa lista kroków przed zakupem w 7 kategoriach (stan prawny,
+planowanie przestrzenne, bezpieczeństwo, infrastruktura, koszty zakupu,
+wycena, teren i otoczenie) — to jest ostatnia strona PDF-u Działkopedii.
+Kategorie to standardowa, generyczna wiedza branżowa o due diligence
+działki (każdy poradnik zakupu działki wymienia te same punkty), NIE
+skopiowana treść — appka po prostu odhacza, które z tych 25 kroków
+faktycznie już sama sprawdziła (`covered: set[str]` budowany w
+`main.py` z tego, które sekcje zwróciły `status: "ok"`). Czysto
+prezentacyjne — zero nowych źródeł danych. 4 nowe testy pytest.
+Ciekawostka: appka niezależnie wychodzi na "8 z 25" auto-sprawdzonych —
+dokładnie tyle samo, ile pokazuje PDF Działkopedii, mimo że liczone
+zupełnie inną logiką — zbieżność, nie kopiowanie.
+
+**Frontend** (`app.js`/`index.html`): werdykt (`.verdict-card`) zostaje
+(wynik 0-100 + poziom), ale usunięta stara lista `<ul class="verdict-
+flags">` (tylko problemy) — zastąpiona przez `.checklist-counts` (3
+kafelki risk/warning/ok) + `.check-rows` (pełna lista, posortowana
+risk→warning→ok, każdy wiersz: etykieta + kolorowy pill + tekst).
+Osobna nowa sekcja `<details open>` „Lista kroków przed zakupem" z
+`.dd-category`/`.dd-item` (checkboxy `disabled`, `checked` gdy
+`auto_checked`).
+
+**Zweryfikowane wizualnie** (Playwright, ten sam wzorzec co poprzednia
+runda) — zrzut ekranu potwierdził czytelny układ, poprawne sortowanie
+wierszy, działające liczniki, checkboxy w liście kroków renderujące się
+poprawnie. Zero błędów JS.
+
+Cache-bust: `app.js?v=25`, service worker `v17`.
+
+**Zbadane z PDF-a, ale NIE zrobione w tej rundzie** — nowe kategorie
+danych, których appka nie ma wcale (azbest, jakość powietrza GIOŚ,
+osiadanie terenu Copernicus EGMS, ryzyko Seveso, zasięg sieci UKE, ceny
+z rzeczywistych transakcji RCN — ich PDF pokazuje medianę z 361
+transakcji, co jest zaskakujące, bo wcześniejszy research nie znalazł
+potwierdzonego publicznego API RCN; warto zbadać ponownie, może się
+mylili co do dostępności, albo Działkopedia ma nietypowy dostęp).
+Klaudia zaakceptowała plan: najpierw ta runda (prezentacja, zero nowych
+usług), następnie zbadanie GIOŚ (jakość powietrza) jako najbardziej
+obiecującej kolejnej integracji — to jeszcze nie zostało zrobione, patrz
+koniec tego dokumentu / rozmowa z Klaudią o kolejnych krokach.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
