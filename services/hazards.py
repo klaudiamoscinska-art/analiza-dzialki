@@ -10,6 +10,7 @@ from config import (
     ISOK_MZP20_URL, PODTOPIENIA_BASE_URL, SOPO_BASE_URL, SOPO_LAYERS,
     TIMEOUT_ISOK_FLOOD, TIMEOUT_PIG_WATERLOGGING, logger,
 )
+from http_utils import describe_exc
 
 async def check_landslide(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
     """The 'query' capability is disabled on the individual SOPO feature
@@ -43,7 +44,7 @@ async def check_landslide(client: httpx.AsyncClient, geometry: BaseGeometry) -> 
         return {"status": "ok", "has_landslide": len(results) > 0, "matched_categories": matched}
     except Exception as exc:
         logger.warning("check_landslide: usługa SOPO PIG-PIB niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa SOPO PIG-PIB niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa SOPO PIG-PIB niedostępna: {describe_exc(exc)}"}
 
 
 async def get_flood_zone(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
@@ -67,7 +68,7 @@ async def get_flood_zone(client: httpx.AsyncClient, x_2180: float, y_2180: float
         return {"status": "ok", "in_flood_zone": False, "depth_range": None}
     except Exception as exc:
         logger.warning("get_flood_zone: usługa ISOK niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa ISOK (Wody Polskie) niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa ISOK (Wody Polskie) niedostępna: {describe_exc(exc)}"}
 
 
 async def get_waterlogging_risk(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
@@ -86,5 +87,5 @@ async def get_waterlogging_risk(client: httpx.AsyncClient, geometry: BaseGeometr
         return {"status": "ok", "at_risk": len(data.get("results", [])) > 0}
     except Exception as exc:
         logger.warning("get_waterlogging_risk: usługa PIG-PIB niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa PIG-PIB niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa PIG-PIB niedostępna: {describe_exc(exc)}"}
 

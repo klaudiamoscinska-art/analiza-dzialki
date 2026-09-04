@@ -9,15 +9,19 @@ builders, and the WFS registry lookup rules.
 
 Run with: pytest (after `pip install -r requirements-dev.txt`).
 """
+import io
+
 import httpx
 import pytest
+from PIL import Image
 from shapely.geometry import Polygon
 
 import geo_utils
 import http_utils
 from config import KIAPP_URL, KIMPZP_URL
 from services import (
-    air_quality, cache, due_diligence, geocoding, geology, nature, uldk, valuation, verdict, wfs_search, zoning,
+    air_quality, cache, due_diligence, geocoding, geology, nature, uldk, utilities, valuation, verdict, wfs_search,
+    zoning,
 )
 
 
@@ -1171,6 +1175,86 @@ async def test_check_mining_areas_request_failure_returns_error():
 
 
 # ---------------------------------------------------------------------------
+# services.utilities — KIUT GetMap pixel-counting presence check. Fixed
+# 2026-09-04, reported live by Klaudia ("media przestały działać" on the
+# test parcel): each of the 6 layers catches its OWN request failure and
+# silently reports present=False, so a total KIUT outage used to look
+# identical to "checked, genuinely no utilities nearby" — both to the
+# verdict's scoring AND to the chip grid. Now: all 6 layers failing makes
+# the whole check report status="error" (goes to incomplete_sections,
+# never scored) instead of a falsely confident "ok, nothing found".
+# ---------------------------------------------------------------------------
+
+def _png_response(non_transparent_pixels):
+    img = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    for i in range(non_transparent_pixels):
+        img.putpixel((i % 240, i // 240), (0, 0, 0, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class _FakePngResponse:
+    def __init__(self, content):
+        self.content = content
+
+    def raise_for_status(self):
+        pass
+
+
+class _FakeUtilitiesClient:
+    """Routes by layer name (params["LAYERS"]) — some layers return an
+    image with real content, some return blank/transparent, some raise."""
+
+    def __init__(self, layer_pixels, layer_errors=()):
+        self._layer_pixels = layer_pixels
+        self._layer_errors = set(layer_errors)
+
+    async def get(self, url, params=None, follow_redirects=None):
+        layer = params["LAYERS"]
+        if layer in self._layer_errors:
+            raise RuntimeError("KIUT niedostępny dla tej warstwy")
+        return _FakePngResponse(_png_response(self._layer_pixels.get(layer, 0)))
+
+
+@pytest.mark.asyncio
+async def test_check_utilities_detects_present_above_threshold():
+    client = _FakeUtilitiesClient({"przewod_wodociagowy": 500, "przewod_elektroenergetyczny": 700})
+    result = await utilities.check_utilities(client, 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    present_keys = {u["key"] for u in result["utilities"] if u["present"]}
+    assert present_keys == {"woda", "prad"}
+
+
+@pytest.mark.asyncio
+async def test_check_utilities_below_threshold_is_absent_not_error():
+    client = _FakeUtilitiesClient({})  # all layers return a blank (fully transparent) image
+    result = await utilities.check_utilities(client, 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    assert all(not u["present"] and not u.get("error") for u in result["utilities"])
+
+
+@pytest.mark.asyncio
+async def test_check_utilities_all_layers_failing_is_error_not_false_ok():
+    all_layers = ["przewod_wodociagowy", "przewod_kanalizacyjny", "przewod_gazowy",
+                  "przewod_elektroenergetyczny", "przewod_cieplowniczy", "przewod_telekomunikacyjny"]
+    client = _FakeUtilitiesClient({}, layer_errors=all_layers)
+    result = await utilities.check_utilities(client, 500000.0, 300000.0)
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_check_utilities_partial_failure_stays_ok_with_error_flag_per_layer():
+    client = _FakeUtilitiesClient({"przewod_wodociagowy": 500}, layer_errors=["przewod_gazowy"])
+    result = await utilities.check_utilities(client, 500000.0, 300000.0)
+    assert result["status"] == "ok"
+    by_key = {u["key"]: u for u in result["utilities"]}
+    assert by_key["woda"]["present"] is True
+    assert by_key["gaz"]["error"] is True
+    assert by_key["gaz"]["present"] is False
+
+
+# ---------------------------------------------------------------------------
 # services.air_quality — GIOŚ nearest-station PM2.5/PM10 lookup, added
 # 2026-09-04. get_air_quality makes three distinct kinds of calls (station
 # list, sensors-per-station, data-per-sensor), so it needs a fake client
@@ -1348,6 +1432,27 @@ async def test_get_air_quality_station_list_fetch_failure_is_error(cache_db):
 
     assert result["status"] == "error"
     assert "GIOŚ" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# http_utils.describe_exc — several httpx exceptions (ConnectTimeout,
+# ReadTimeout, ...) have an empty str() when raised without an explicit
+# message, which silently produced "usługa niedostępna: " with nothing
+# after the colon in every service's error message — reported live by
+# Klaudia 2026-09-04 (a genuine Overpass timeout for the nearest-road
+# check). Fixed by falling back to the exception's class name.
+# ---------------------------------------------------------------------------
+
+def test_describe_exc_uses_str_when_present():
+    assert http_utils.describe_exc(RuntimeError("połączenie zerwane")) == "połączenie zerwane"
+
+
+def test_describe_exc_falls_back_to_class_name_when_str_is_empty():
+    assert http_utils.describe_exc(httpx.ConnectTimeout("")) == "ConnectTimeout"
+
+
+def test_describe_exc_falls_back_for_bare_exception_with_no_args():
+    assert http_utils.describe_exc(httpx.ReadTimeout("")) == "ReadTimeout"
 
 
 # ---------------------------------------------------------------------------

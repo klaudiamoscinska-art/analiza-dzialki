@@ -12,6 +12,7 @@ import httpx
 from shapely.geometry.base import BaseGeometry
 
 from config import MIDAS_BASE_URL, TIMEOUT_MIDAS, logger
+from http_utils import describe_exc
 
 
 async def check_mining_areas(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
@@ -44,4 +45,4 @@ async def check_mining_areas(client: httpx.AsyncClient, geometry: BaseGeometry) 
         return {"status": "ok", "has_mining_area": len(results) > 0, "names": names}
     except Exception as exc:
         logger.warning("check_mining_areas: usługa MIDAS PIG-PIB niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa MIDAS PIG-PIB niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa MIDAS PIG-PIB niedostępna: {describe_exc(exc)}"}

@@ -9,7 +9,7 @@ from shapely.geometry.base import BaseGeometry
 
 from config import KIEG_LAYERS, KIEG_URL, OSM_BUILDING_LABELS, logger
 from geo_utils import _clean_feature_info_text, _parse_feature_info_table, geod
-from http_utils import _overpass_query, wms_get_feature_info
+from http_utils import _overpass_query, describe_exc, wms_get_feature_info
 
 async def get_buildings_on_parcel(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
     centroid = geometry.centroid
@@ -21,7 +21,7 @@ async def get_buildings_on_parcel(client: httpx.AsyncClient, geometry: BaseGeome
         data = await _overpass_query(client, query)
     except Exception as exc:
         logger.warning("get_buildings_on_parcel: Overpass niedostępny", exc_info=True)
-        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {describe_exc(exc)}"}
     buildings = []
     for el in data.get("elements", []):
         coords = el.get("geometry", [])
@@ -68,5 +68,5 @@ async def get_cadastre_basic(client: httpx.AsyncClient, x_2180: float, y_2180: f
         }
     except Exception as exc:
         logger.warning("get_cadastre_basic: usługa KIEG niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa niedostępna: {describe_exc(exc)}"}
 

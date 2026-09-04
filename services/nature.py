@@ -17,6 +17,7 @@ from pyproj import Transformer
 from shapely.geometry import Point, shape
 
 from config import GDOS_LAYERS, GDOS_WFS_URL, TIMEOUT_GDOS, logger
+from http_utils import describe_exc
 
 _to_4326 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
 
@@ -76,7 +77,7 @@ async def get_protected_areas(
         data = resp.json()
     except Exception as exc:
         logger.warning("get_protected_areas: usługa GDOŚ WFS niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa GDOŚ (obszary chronione) niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa GDOŚ (obszary chronione) niedostępna: {describe_exc(exc)}"}
 
     features = data.get("features", [])
     if not features:

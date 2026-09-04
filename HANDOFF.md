@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 96 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 103 testy dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -1014,6 +1014,58 @@ karta faktycznie ląduje w widocznym obszarze, nie tylko że link istnieje
 w HTML-u. Zero błędów JS.
 
 Cache-bust: `app.js?v=27`, service worker `v19`.
+
+### Dwa realne błędy zgłoszone przez Klaudię na żywej działce testowej — dodane 2026-09-04
+
+Klaudia sprawdziła działkę testową (Zawoja) na żywej appce zaraz po
+powyższej zmianie i napisała "wygląda jakby niektóre elementy przestały
+działać np. media" + zrzut ekranu. Diagnoza (bez dostępu do usług
+rządowych z tego środowiska — same domeny gov.pl są zablokowane) wykazała
+DWIE osobne, prawdziwe, ale niezwiązane z dzisiejszą zmianą UI usterki:
+
+1. **Puste komunikaty błędów** (`"Usługa ... niedostępna: "` z niczym po
+   dwukropku, widoczne dla sekcji "Odległość do drogi gminnej"). Przyczyna:
+   kilka wyjątków `httpx` (np. `ConnectTimeout`, `ReadTimeout`) rzuconych
+   bez jawnej wiadomości ma PUSTY `str()` — `f"...: {exc}"` cicho gubił
+   jedyną informację, o co chodziło. Ten sam wzorzec (`{exc}` wprost w
+   f-stringu) występował w **~15 miejscach w 8 plikach** (wszystkie usługi
+   zewnętrzne). **Naprawa**: nowy `http_utils.describe_exc(exc)` —
+   `str(exc) or type(exc).__name__` (fallback do nazwy klasy wyjątku, gdy
+   treść jest pusta) — podmieniony wszędzie, gdzie `{exc}` trafiał
+   bezpośrednio do komunikatu błędu. 3 nowe testy.
+2. **`services/utilities.py::check_utilities()` — całkowita awaria usługi
+   KIUT wyglądała identycznie jak "sprawdzone, naprawdę brak mediów".**
+   Każda z 6 warstw (`one()`) łapie swój WŁASNY wyjątek i cicho zwraca
+   `present: False` (celowo — żeby jeden padły typ medium nie ukrywał
+   wyników pozostałych pięciu) — ale to oznacza, że gdy WSZYSTKIE 6 warstw
+   padnie naraz (np. przejściowa awaria KIUT), funkcja i tak zwracała
+   `status: "ok"` z samymi `present: False`. To miało DWA realne skutki:
+   frontend pokazywał siatkę kafelków "wszystko szare" zamiast komunikatu
+   błędu (bo `app.js` w ogóle nie sprawdzał flagi `error` per-warstwa —
+   ona była w danych, po prostu nieużywana), A `verdict.py` odejmowało 15
+   pkt i pisało "Nie wykryto żadnych mediów w pobliżu działki (GESUT)" —
+   fałszywie pewny sygnał ryzyka zamiast "nie wiemy". **Naprawa**:
+   `check_utilities()` zwraca teraz `status: "error"` (trafia do
+   `incomplete_sections`, nie punktowane), gdy WSZYSTKIE warstwy zawiodły.
+   Częściowa awaria (niektóre warstwy OK, inne nie) zostaje statusem "ok",
+   ale `app.js` dostał nowy stan kafelka `.chip.unknown` (bursztynowy,
+   `title` z wyjaśnieniem) dla warstw z `error: true` — odróżnialny
+   wizualnie od "sprawdzone, brak" (szary) i "sprawdzone, jest" (zielony).
+   4 nowe testy (fake klient renderujący prawdziwe obrazy PNG przez PIL,
+   routowany po nazwie warstwy — pełny sukces, brak poniżej progu pikseli,
+   całkowita awaria wszystkich 6, częściowa awaria z flagą `error` na
+   pojedynczym kaflu). Zweryfikowane wizualnie w Playwright.
+
+**Ważna lekcja**: to, co Klaudia zobaczyła jako "coś się zepsuło po
+zmianie UI", było w rzeczywistości dwoma NIEZALEŻNYMI, przedistniejącymi
+błędami w warstwie danych, ujawnionymi przez przypadek dokładnie w tym
+momencie (prawdopodobnie chwilowa niedostępność Overpass/KIUT podczas
+sprawdzania). Same zmiany UI (`.check-row-link`, `id="card-*"`) były
+przetestowane i poprawne — ale skoro Klaudia już patrzyła na żywy wynik,
+warto było przy okazji sprawdzić rzeczy, których nie dało się złapać w
+tym środowisku (sandbox nie ma dostępu do żadnej z tych usług na żywo).
+
+Cache-bust: `app.js?v=28`, service worker `v20`.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 

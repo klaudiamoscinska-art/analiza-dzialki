@@ -10,7 +10,7 @@ from shapely.ops import transform as shapely_transform
 
 from config import WATERWAY_LABELS, logger
 from geo_utils import geod, to_2180
-from http_utils import _overpass_query
+from http_utils import _overpass_query, describe_exc
 
 async def get_nearest_municipal_road(client: httpx.AsyncClient, geometry: BaseGeometry) -> dict[str, Any]:
     """Distance to the nearest gmina (municipal) road.
@@ -40,7 +40,7 @@ async def get_nearest_municipal_road(client: httpx.AsyncClient, geometry: BaseGe
         data = await _overpass_query(client, query)
     except Exception as exc:
         logger.warning("get_nearest_municipal_road: Overpass niedostępny", exc_info=True)
-        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {describe_exc(exc)}"}
 
     fallback_used = False
     elements = data.get("elements", [])
@@ -56,7 +56,7 @@ async def get_nearest_municipal_road(client: httpx.AsyncClient, geometry: BaseGe
             elements = data.get("elements", [])
         except Exception as exc:
             logger.warning("get_nearest_municipal_road: Overpass (fallback tertiary) niedostępny", exc_info=True)
-            return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+            return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {describe_exc(exc)}"}
 
     if not elements:
         return {
@@ -114,7 +114,7 @@ async def get_waterways(client: httpx.AsyncClient, geometry: BaseGeometry) -> di
         data = await _overpass_query(client, query)
     except Exception as exc:
         logger.warning("get_waterways: Overpass niedostępny", exc_info=True)
-        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa OpenStreetMap/Overpass niedostępna: {describe_exc(exc)}"}
 
     seen: dict[str, dict[str, Any]] = {}
     for el in data.get("elements", []):

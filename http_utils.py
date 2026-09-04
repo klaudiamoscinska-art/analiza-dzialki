@@ -8,6 +8,21 @@ import httpx
 
 from config import OVERPASS_HEADERS, OVERPASS_URLS, TIMEOUT_OVERPASS, logger
 
+
+def describe_exc(exc: BaseException) -> str:
+    """str(exc) is EMPTY for several common httpx exceptions raised without
+    an explicit message (confirmed live 2026-09-04 — a real
+    'Usługa ... niedostępna: ' with nothing after the colon, reported by
+    Klaudia for a genuine Overpass timeout) — httpx.ConnectTimeout(),
+    httpx.ReadTimeout() etc. carry no args, so f'{exc}' silently loses the
+    one piece of information ('what actually happened') these error
+    messages exist to show. Falls back to the exception's class name,
+    which is always non-empty and still says *something* useful
+    (ConnectTimeout vs ReadTimeout vs ConnectError point at different
+    problems even with no further detail)."""
+    return str(exc) or type(exc).__name__
+
+
 async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, Any]:
     last_exc: Optional[Exception] = None
     for url in OVERPASS_URLS:
