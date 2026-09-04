@@ -863,12 +863,19 @@
     if (ut.status === "ok") {
       utInner = `<p class="disclaimer" style="margin:0 0 8px;">Wykrywanie na podstawie obrazu mapy — czy w pobliżu działki narysowana jest linia danego typu.</p>`;
       utInner += `<div class="chip-grid">${ut.utilities
-        .map(
-          (u) => `
-        <div class="chip${u.present ? " present" : ""}">
+        .map((u) => {
+          // u.error (nieudane zapytanie o tę jedną warstwę — usługa KIUT
+          // płata figle per-warstwa, nie tylko całościowo) było dotąd
+          // pomijane po stronie frontendu, więc "nie udało się sprawdzić"
+          // renderowało się identycznie jak "sprawdzone, brak" — dodane
+          // 2026-09-04, zgłoszone przez Klaudię jako "media przestały
+          // działać" na działce testowej.
+          const cls = u.error ? " unknown" : u.present ? " present" : "";
+          return `
+        <div class="chip${cls}" title="${u.error ? "Nie udało się sprawdzić tej warstwy — spróbuj ponownie" : ""}">
           <span>${escapeHTML(u.label)}</span><span class="dot"></span>
-        </div>`
-        )
+        </div>`;
+        })
         .join("")}</div>`;
     } else {
       utInner = `<p>${escapeHTML(ut.message)}</p>`;

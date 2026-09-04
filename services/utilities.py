@@ -53,5 +53,15 @@ async def check_utilities(client: httpx.AsyncClient, x_2180: float, y_2180: floa
             return {"key": label_key, "label": label, "present": False, "error": True}
 
     results = await asyncio.gather(*[one(k, lbl, layer) for k, lbl, layer in KIUT_LAYERS])
+    # Każda warstwa łapie swój własny wyjątek i wraca jako "present: False"
+    # (żeby jeden padły typ medium nie ukrywał wyników pozostałych pięciu)
+    # — ale to samo z siebie oznacza, że "wszystkie 6 warstw padło" wygląda
+    # identycznie jak "sprawdzone, naprawdę brak mediów", zarówno dla
+    # werdyktu (punktacja) jak i UI. Fixed 2026-09-04, zgłoszone przez
+    # Klaudię jako "media przestały działać": jeśli KIUT padnie CAŁKOWICIE,
+    # to teraz osobny status "error" (idzie do incomplete_sections, nie
+    # punktowane) zamiast fałszywie pewnego "ok, brak mediów".
+    if all(r.get("error") for r in results):
+        return {"status": "error", "message": "Usługa KIUT (media/uzbrojenie terenu) niedostępna."}
     return {"status": "ok", "utilities": results}
 

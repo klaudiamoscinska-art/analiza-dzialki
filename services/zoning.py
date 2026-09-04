@@ -15,7 +15,7 @@ from config import (
     TIMEOUT_MPZP_DETAIL, TIMEOUT_MPZP_PROBE, logger,
 )
 from geo_utils import _clean_feature_info_text, _feature_info_has_data, _parse_feature_info_table
-from http_utils import wms_get_feature_info
+from http_utils import describe_exc, wms_get_feature_info
 
 # Keyword-based, best-effort detection of Plan Ogólny / OUZ mentions in
 # whatever KIAPP's GetFeatureInfo happens to return — added 2026-09-03.
@@ -73,7 +73,7 @@ async def _try_zoning_source(
         has_plan_visually = await _mpzp_has_plan_drawn(client, url, layer, x_2180, y_2180)
     except Exception as exc:
         logger.warning("_try_zoning_source(%s): probe GetMap nieudany", source_label, exc_info=True)
-        return {"status": "error", "message": f"Usługa {source_label} niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa {source_label} niedostępna: {describe_exc(exc)}"}
 
     if not has_plan_visually:
         return None
@@ -103,7 +103,7 @@ async def _try_zoning_source(
     except Exception as exc:
         return {
             "status": "partial", "found": "yes", "table": [], "source": source_label,
-            "message": f"Działka jest objęta planem ({source_label}), ale nie udało się pobrać szczegółów: {exc}",
+            "message": f"Działka jest objęta planem ({source_label}), ale nie udało się pobrać szczegółów: {describe_exc(exc)}",
         }
 
 

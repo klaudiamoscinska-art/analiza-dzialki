@@ -13,7 +13,7 @@ from shapely.geometry import shape
 
 from config import TIMEOUT_WFS_POWIAT, logger
 from geo_utils import geod, to_2180
-from http_utils import _get_with_retry
+from http_utils import _get_with_retry, describe_exc
 from services.geocoding import geocode_address_points, geocode_powiat_gmina_points
 from services.uldk import find_parcel_by_xy, find_parcel_with_area_by_xy
 
@@ -372,7 +372,7 @@ async def _gather_nearby_parcels(client: httpx.AsyncClient, place_query: str) ->
             "status": "error",
             "message": (
                 f"Serwer odpowiedzialny za tę okolicę jest teraz chwilowo niedostępny "
-                f"({exc}). To nie błąd w aplikacji, tylko przejściowa awaria po stronie urzędu — "
+                f"({describe_exc(exc)}). To nie błąd w aplikacji, tylko przejściowa awaria po stronie urzędu — "
                 "spróbuj ponownie za kilka-kilkanaście minut, albo w międzyczasie sprawdź inną "
                 "miejscowość."
             ),

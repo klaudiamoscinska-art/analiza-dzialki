@@ -27,6 +27,7 @@ import httpx
 
 from config import GIOS_API_URL, TIMEOUT_GIOS, TTL_AIR_QUALITY_STATIONS, logger
 from geo_utils import geod
+from http_utils import describe_exc
 from services import cache
 
 # GIOŚ's terms of use require visible attribution of the data source —
@@ -123,7 +124,7 @@ async def get_air_quality(client: httpx.AsyncClient, lon: float, lat: float) -> 
         candidates = await _nearest_stations(client, lon, lat)
     except Exception as exc:
         logger.warning("get_air_quality: lista stacji GIOŚ niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa GIOŚ (lista stacji) niedostępna: {exc}"}
+        return {"status": "error", "message": f"Usługa GIOŚ (lista stacji) niedostępna: {describe_exc(exc)}"}
 
     if not candidates:
         return {"status": "error", "message": "Brak stacji pomiarowych GIOŚ w bazie."}
