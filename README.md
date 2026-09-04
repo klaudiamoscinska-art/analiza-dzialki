@@ -23,7 +23,8 @@ geo_utils.py             — parsowanie/pomiary geometrii, czyszczenie tekstu
 http_utils.py            — generyczne helpery HTTP (retry, Overpass, WMS GetFeatureInfo)
 services/                — po jednym module na sekcję analizy (ULDK, WFS/"Szukaj
                             działki", ewidencja+budynki, zagrożenia, media,
-                            drogi/cieki, plany, wycena)
+                            drogi/cieki, plany, wycena) + cache.py (pamięć
+                            podręczna per-działka, patrz HANDOFF.md)
 tests/                   — testy jednostkowe (pytest) dla logiki bez zależności sieciowych
 wfs_powiat_registry.json — rejestr bezpośrednich serwerów WFS per powiat (patrz HANDOFF.md §4)
 static/                  — frontend: index.html, app.js, manifest.json, service-worker.js, icons/

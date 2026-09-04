@@ -108,25 +108,33 @@ async def _try_zoning_source(
 
 
 async def get_zoning(client: httpx.AsyncClient, x_2180: float, y_2180: float) -> dict[str, Any]:
-    """Tries the new national APP aggregator (KIAPP) first — richer, act-level
+    """Queries the new national APP aggregator (KIAPP) — richer, act-level
     metadata (nazwa planu, uchwała, data wejścia w życie, status) once gminas
-    populate it — then falls back to the legacy KIMPZP zoning-symbol service
-    if KIAPP has nothing here. Both use the same fast-GetMap-probe strategy
-    (see _mpzp_has_plan_drawn) since KIMPZP's GetFeatureInfo has been
-    confirmed live to hang indefinitely for gminas without their own backend.
+    populate it — and the legacy KIMPZP zoning-symbol service CONCURRENTLY
+    (added 2026-09-04, performance investigation — see HANDOFF.md and the
+    'Plan Pamięci Podręcznej' artifact: this was previously sequential,
+    KIMPZP only tried after KIAPP came back empty, making this branch alone
+    responsible for most of /api/analyze's worst-case latency ceiling).
+    KIAPP's result wins whenever it has one (same precedence as before,
+    just no longer paying for it in wall-clock time) — it's the richer,
+    newer source; KIMPZP is the fallback only when KIAPP found nothing at
+    all. Both use the same fast-GetMap-probe strategy (see
+    _mpzp_has_plan_drawn) since KIMPZP's GetFeatureInfo has been confirmed
+    live to hang indefinitely for gminas without their own backend.
 
     When NEITHER source finds a plan, attaches a 'note' explaining the
     Plan Ogólny / OUZ rule that took effect 2026-09-01 (added 2026-09-03,
     see HANDOFF.md) — 'no MPZP' used to mean 'ask for warunki zabudowy
     freely', which is no longer true, and this is the one place in the app
     where someone would otherwise walk away with that outdated assumption."""
-    result = await _try_zoning_source(client, KIAPP_URL, KIAPP_LAYERS, x_2180, y_2180, "Rejestr Urbanistyczny/APP")
-    if result is not None:
-        return result
-
-    result = await _try_zoning_source(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, "MPZP (KIMPZP)")
-    if result is not None:
-        return result
+    kiapp_result, kimpzp_result = await asyncio.gather(
+        _try_zoning_source(client, KIAPP_URL, KIAPP_LAYERS, x_2180, y_2180, "Rejestr Urbanistyczny/APP"),
+        _try_zoning_source(client, KIMPZP_URL, KIMPZP_LAYERS, x_2180, y_2180, "MPZP (KIMPZP)"),
+    )
+    if kiapp_result is not None:
+        return kiapp_result
+    if kimpzp_result is not None:
+        return kimpzp_result
 
     return {"status": "ok", "found": "no", "table": [], "note": _NO_PLAN_OUZ_NOTE}
 
