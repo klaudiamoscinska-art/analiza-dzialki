@@ -123,7 +123,7 @@ ale zestaw testów lokalnych był kompletny na tyle, na ile dało się to zrobi�
 sieci do prawdziwych usług.
 
 ### Testy (pytest, dodane 2026-09-01)
-`tests/test_pure_logic.py` — 108 testów dla logiki bez zależności sieciowych:
+`tests/test_pure_logic.py` — 109 testów dla logiki bez zależności sieciowych:
 parsowanie geometrii ULDK (WKT/EWKT/WKB), `_rectangle_side_lengths`,
 `_feature_info_has_data`, `estimate_value`, buildery linków (GUNB/geoportal/
 e-mapa), `_within_poland`, rejestr WFS (`_lookup_wfs_config`), i najważniejsze —
@@ -1212,6 +1212,59 @@ priorytet — nie zgadywać/hardkodować jednego adresu na próbę.
 
 4 nowe testy pytest w tej rundzie (108 łącznie, było 104) — 1 dla dystansu
 mediów, 3 dla wyścigu Overpass. Cache-bust: `app.js?v=30`, service worker `v22`.
+
+### Krytyczny błąd: cała analiza padała z niezrozumiałym błędem — dodane 2026-09-04
+
+Klaudia zgłosiła "Wystąpił nieoczekiwany błąd sieci lub przeglądarki" (nasz
+własny, generyczny fallback z `friendlyErrorMessage()` — patrz poprzednia
+runda) dla zapytania **"Korbielów 3917/5"** — cała analiza padała, żadnego
+wyniku, poprosiła o priorytetowe potraktowanie i wstrzymanie innych prac
+(zapisane jako TODO w tej sesji: dokończenie podniesienia
+`TIMEOUT_OVERPASS`, zbadanie zasięgu sieci UKE, zbadanie skali Bortle —
+wszystkie wróciły do kolejki po tej naprawie).
+
+**Diagnoza**: `/api/resolve`'s kaskada wieloetapowa (patrz docstring w
+`main.py` — do 5 etapów: bezpośrednie ULDK, geokodowanie gminy + skan ID,
+skan geometrii WFS, warianty numerowanych obrębów, geokodowanie POWIATU +
+powtórka skanów dla KAŻDEJ gminy w powiecie) **nie miała ŻADNEGO łącznego
+budżetu czasu**. Dla nazwy, która nie rozpoznaje się jako gmina na
+wcześniejszych etapach (jak najwyraźniej "Korbielów"), kaskada spada aż do
+etapu 5 — skanowania wszystkich gmin całego powiatu, gdzie
+`scan_wfs_for_parcel_number()` samo w sobie może trwać do
+`TIMEOUT_WFS_POWIAT=45s` NA GMINĘ. Całkowity czas takiego zapytania mógł
+więc realnie przekroczyć minutę.
+
+**Dlaczego to dawało akurat TEN konkretny, niezrozumiały błąd**: gdy
+zapytanie trwa dłużej niż limit czasu serwera proxy Render (nieznany z
+tego środowiska — dashboard Render też jest niedostępny stąd), proxy samo
+przerywa połączenie i zwraca WŁASNĄ stronę błędu (HTML, nie JSON). Frontend
+zawsze robi `resp.json()` na odpowiedzi — dla HTML-a to rzuca prawdziwym
+`SyntaxError` (natywny wyjątek przeglądarki, nie nasz `Error`), który
+`friendlyErrorMessage()` (dodane poprzednią rundą) poprawnie rozpoznaje
+jako "nieprzewidziany" i pokazuje generyczny komunikat — mechanizm
+zadziałał zgodnie z projektem, ale sam PRZYCZYNA (appka pozwoliła sobie na
+nieograniczony czas wyszukiwania) pozostawała nienaprawiona.
+
+**Naprawa**: nowy `TIMEOUT_RESOLVE_BUDGET = 50.0` (`config.py`) — cała
+kaskada `/api/resolve` owinięta w `asyncio.wait_for()`
+(`_do_resolve()` — wydzielona jako wewnętrzna funkcja z istniejącej logiki,
+bez zmiany samej logiki wyszukiwania). Jeśli przekroczy budżet, appka SAMA
+zwraca czysty, zrozumiały komunikat PO POLSKU (`HTTPException(504, ...)`,
+poprawny JSON) — **zanim** zrobi to za nią proxy Render. To nie sprawia,
+że "Korbielów 3917/5" nagle się znajdzie (jeśli kaskada faktycznie
+potrzebuje więcej niż 50s, wciąż dostanie błąd) — ale zamienia mylący,
+nieprzetłumaczony crash w jasny komunikat z konkretną sugestią (spróbuj
+pełnego identyfikatora TERYT). Wybrana wartość (50s) jest świadomym
+kompromisem: bezpiecznie mieści jeden najgorszy przypadek gminy (45s) z
+marginesem, ale NIE jest potwierdzona względem faktycznego limitu Render
+(nie da się tego sprawdzić z tego środowiska) — jeśli to nadal się zdarza,
+oznacza to że limit Render jest krótszy niż 50s i budżet trzeba obniżyć,
+nie podnieść.
+
+1 nowy test pytest (109 łącznie) — monkeypatch `TIMEOUT_RESOLVE_BUDGET` na
+bardzo małą wartość + zawieszona pierwsza funkcja kaskady, potwierdza że
+`resolve_parcel()` rzuca czysty `HTTPException(504, ...)` z nazwą
+zapytania w treści, zamiast wisieć bez końca.
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
