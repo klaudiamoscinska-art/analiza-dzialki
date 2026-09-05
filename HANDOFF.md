@@ -148,14 +148,13 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
    druga działka testowa (Zawoja, lżejsza lokalizacja) działa bez
    problemu. **Plan naprawy (ograniczenie współbieżności/
    `asyncio.Semaphore`, zdjęcie CPU-bound pracy z pętli zdarzeń przez
-   `asyncio.to_thread`) WDROŻONY na osobnym branchu
-   `claude/render-concurrency-limit`** — świadomie NIE zmergowany, NIE
-   zdeployowany, NIE zweryfikowany na żywo (na wyraźną prośbę Klaudii, żeby
-   cofnięcie IPv4 mogło zostać sprawdzone na produkcji niezależnie od tej
-   większej zmiany) — patrz sekcja 3.1, podsekcja „Kroki 1+2 WDROŻONE na
-   osobnym branchu". **Następny krok dla Klaudii**: przejrzeć branch,
-   zmergować gdy gotowa, zdeployować, powtórzyć „Korbielów 3917/5" kilka
-   razy na żywo.
+   `asyncio.to_thread`) WDROŻONY i ZMERGOWANY do `main` (#35,
+   2026-09-04)** — patrz sekcja 3.1, podsekcja „Kroki 1+2 WDROŻONE na
+   osobnym branchu". **NIE zweryfikowane jeszcze na żywo** (nie da się z
+   tego środowiska — sieć rządowa całkowicie zablokowana). **Następny krok
+   dla Klaudii**: po deployu na Render, powtórzyć „Korbielów 3917/5" kilka
+   razy pod rząd na żywo i sprawdzić w logach, czy `ConnectTimeout` (MPZP)
+   i `ReadTimeout` (Overpass) ustąpiły.
 
 ---
 
@@ -1852,7 +1851,7 @@ i kiedy wdrożyć należy do niej.
    i sprawdzić, czy `_get_with_retry` przestał logować `nieudana po`
    blisko granicy skonfigurowanych timeoutów.
 
-#### Kroki 1+2 WDROŻONE na osobnym branchu `claude/render-concurrency-limit` — 2026-09-04, NIE ZMERGOWANY, NIE zdeployowany, NIE zweryfikowany na żywo
+#### Kroki 1+2 WDROŻONE i ZMERGOWANE do main (#35) — 2026-09-04, NIE zweryfikowane jeszcze na żywo
 
 Na prośbę Klaudii ("zajmij się wdrażaniem na osobnym branchu") — celowo
 osobny branch od głównego, żeby cofnięcie IPv4 (#34) mogło zostać
@@ -1907,13 +1906,12 @@ mają OSOBNYCH nowych testów, bo nie zmieniają zachowania/wyniku, tylko
 kontekst wykonania — pokrywają je już istniejące testy `_mpzp_has_plan_drawn`/
 `check_utilities`/`_overpass_query`, wszystkie zielone).
 
-**Świadomie NIE zmergowane i NIE zdeployowane w tej rundzie** — Klaudia
-poprosiła o wdrożenie NA OSOBNYM BRANCHU, żeby najpierw sprawdzić na żywo,
-czy cofnięcie IPv4 (#34) samo w sobie niczego nie popsuło. Do zrobienia
-przez Klaudię: przejrzeć branch `claude/render-concurrency-limit`, zdecydować
-czy mergować, zdeployować, powtórzyć „Korbielów 3917/5" kilka razy pod rząd
-na żywo i sprawdzić logi pod kątem tego, czy timeouty (MPZP i Overpass)
-ustąpiły.
+**ZMERGOWANE do `main` 2026-09-04 (#35)**, po tym jak cofnięcie IPv4 (#34)
+zostało osobno sprawdzone na produkcji. **Do zrobienia przez Klaudię**: po
+deployu na Render, powtórzyć „Korbielów 3917/5" kilka razy pod rząd na
+żywo i sprawdzić logi pod kątem tego, czy timeouty (MPZP i Overpass)
+ustąpiły — to jedyna rzecz, której nie da się zweryfikować z tego
+środowiska (sieć rządowa całkowicie zablokowana, patrz sekcja 8).
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
