@@ -74,7 +74,11 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
   KRYTYCZNY błąd całej analizy — patrz sekcja 3, „Krytyczny błąd").
 - **Overpass API**: wszystkie skonfigurowane mirrory odpytywane RÓWNOLEGLE
   (wyścig, `asyncio.wait FIRST_COMPLETED`), nie sekwencyjnie — blokada
-  jednego mirroru już nie opóźnia sprawdzenia drugiego.
+  jednego mirroru już nie opóźnia sprawdzenia drugiego — **plus 1 retry
+  całego wyścigu, gdy OBA mirrory zawiodą naraz** (dodane 2026-09-05).
+- **Obszary chronione (GDOŚ)** — retry przez `_get_with_retry` + dodatkowa
+  próba specyficznie dla przypadku „HTTP 200 z pustym ciałem" (dodane
+  2026-09-05, potwierdzone na żywo).
 - **Jeden trwały `httpx.AsyncClient`** (`main.py::_get_http_client()`) na
   cały czas życia serwera (utworzony w `lifespan`, zamykany przy
   shutdownie) zamiast nowego klienta przy KAŻDYM żądaniu — dodane
@@ -87,7 +91,7 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
   patrz sekcja 3.
 - Jakość powietrza (GIOŚ), UI checklisty jako zwarty spis treści z linkami
   do kart szczegółów (nie duplikacja tekstu), PWA (manifest + service
-  worker, network-first), CI (GitHub Actions), 115 testów pytest
+  worker, network-first), CI (GitHub Actions), 118 testów pytest
   (`tests/test_pure_logic.py`, logika bez sieci — sieć rządowa jest
   całkowicie niedostępna z tego środowiska, patrz sekcja 8).
 - Cache-busting: `static/app.js?v=32`, `CACHE_NAME` service workera `v24`
@@ -150,11 +154,20 @@ endpoint wyszukiwania po miejscowości/rozmiarze:**
    `asyncio.Semaphore`, zdjęcie CPU-bound pracy z pętli zdarzeń przez
    `asyncio.to_thread`) WDROŻONY i ZMERGOWANY do `main` (#35,
    2026-09-04)** — patrz sekcja 3.1, podsekcja „Kroki 1+2 WDROŻONE na
-   osobnym branchu". **NIE zweryfikowane jeszcze na żywo** (nie da się z
-   tego środowiska — sieć rządowa całkowicie zablokowana). **Następny krok
-   dla Klaudii**: po deployu na Render, powtórzyć „Korbielów 3917/5" kilka
-   razy pod rząd na żywo i sprawdzić w logach, czy `ConnectTimeout` (MPZP)
-   i `ReadTimeout` (Overpass) ustąpiły.
+   osobnym branchu". **ZWERYFIKOWANE NA ŻYWO 2026-09-05: nie naprawiło
+   problemu dla Korbielowa** — `ConnectTimeout` dla MPZP identyczny jak
+   wcześniej, i wystartował natychmiast (bez oczekiwania w kolejce
+   semafora), więc to raczej nie była kwestia współbieżności dla TEGO
+   przypadku. Dodatkowy test (Zawoja na TYM SAMYM kontenerze/IP — zadziałała)
+   **wyklucza hipotezę o reputacji adresu IP Render** i wraca do wniosku:
+   to prawdopodobnie rzeczywista niestabilność konkretnego backendu gminy
+   Jeleśnia za krajowym agregatorem KIMPZP — patrz sekcja 3.1, „Weryfikacja
+   na żywo 2026-09-05". Jedyna pozostała droga to bezpośredni WMS dostawcy
+   gminy (krok 5, epodgik.pl) — osobny, większy projekt, NIE rozpoczęty.
+   **Przy okazji naprawione (mniejsze, ale realne usterki)**: brak retry w
+   `_overpass_query` gdy oba mirrory zawiodą naraz, i brak retry w
+   `get_protected_areas` (GDOŚ) dla przypadku „200 OK z pustym ciałem" —
+   oba zmergowane, patrz sekcja 3.1.
 
 ---
 
@@ -1912,6 +1925,72 @@ deployu na Render, powtórzyć „Korbielów 3917/5" kilka razy pod rząd na
 żywo i sprawdzić logi pod kątem tego, czy timeouty (MPZP i Overpass)
 ustąpiły — to jedyna rzecz, której nie da się zweryfikować z tego
 środowiska (sieć rządowa całkowicie zablokowana, patrz sekcja 8).
+
+#### Weryfikacja na żywo 2026-09-05: limit współbieżności NIE naprawił MPZP dla Korbielowa — prawdziwa przyczyna zawężona dalej, plus retry dodany dla Overpass i GDOŚ
+
+Klaudia przetestowała „Korbielów 3917/5" po deployu #35/#36 — **`ConnectTimeout`
+dla MPZP wystąpił identycznie** (16.0s/15.8s, te same liczby co przed
+zmianą), i próba MPZP wystartowała NATYCHMIAST (zoning jest 4. z 12 na
+liście, mieści się w pierwszej piątce, którą semafor puszcza od razu) —
+czyli w ogóle nie czekała w kolejce na "wolne miejsce". To wskazuje, że
+ograniczenie współbieżności/zdjęcie CPU z event loop (#35) **nie było
+prawdziwą przyczyną** dla tego akurat problemu — dobra, bezpieczna zmiana
+sama w sobie (redukuje ryzyko podobnych problemów pod większym obciążeniem
+w przyszłości), ale nie naprawiła TEGO konkretnego`ConnectTimeout`.
+
+**Kolejny test rozstrzygający**: Klaudia sprawdziła „Zawoja" na TYM SAMYM
+kontenerze/adresie IP, który przed chwilą zawiódł dla Korbielowa — MPZP
+zadziałało. To **wyklucza hipotezę o reputacji/blokadzie adresu IP Render**
+(gdyby to była kwestia IP, Zawoja też by padła, do tego samego hosta). Za
+to potwierdza wcześniejszą, zawężoną diagnozę: **coś w konkretnym
+backendzie gminy Jeleśnia za krajowym agregatorem KIMPZP jest
+niestabilne/wolne** — HANDOFF już wcześniej (przed całą tą rundą)
+dokumentował, że GetFeatureInfo KIMPZP „wisi nieskończenie" dla NIEKTÓRYCH
+gmin bez własnego, sprawnego backendu; to wygląda na tę samą kategorię
+usterki, tylko dotykającą też prostszego GetMap dla tej akurat gminy. **To
+prawdopodobnie rzeczywista, zewnętrzna niestabilność infrastruktury GUGiK
+dla tej jednej gminy — nie coś, co da się naprawić po stronie klienta**
+(wyczerpaliśmy IPv4, retry, limit współbieżności). Jedyna pozostała
+sensowna droga to krok 5 ze starego planu (bezpośredni WMS dostawcy gminy
+zamiast krajowego agregatora, np. epodgik.pl) — świadomie NIE rozpoczęty,
+to osobny, większy projekt (patrz sekcja 7).
+
+**Przy okazji tego testu Klaudia zauważyła też dwie osobne, MNIEJSZE
+usterki, obie naprawione od razu (retry, ten sam wzorzec co reszta
+appki):**
+
+1. **`http_utils._overpass_query` nie miało żadnego retry, gdy OBA mirrory
+   zawiodą naraz** — tylko wyścig między nimi (jeśli jeden pada, wygrywa
+   drugi), ale zero powtórki, gdy oba akurat są przeciążone. Potwierdzone
+   na żywo: „dojazd" (najbliższa droga) dla Zawoi zawiódł raz, zadziałał
+   przy ręcznej powtórce chwilę później — klasyczna przejściowa
+   flakowatość darmowego, publicznego Overpass, nie coś specyficznego dla
+   Render. **Naprawa**: `_overpass_query_once` (dawne `_overpass_query`,
+   sama logika wyścigu bez zmian) owinięte w nowe `_overpass_query` z 1
+   dodatkową próbą (2s odstępu) — dokładnie ten sam wzorzec co
+   `_get_with_retry`. Wszyscy 3 obecni wywołujący (`cadastre.py`,
+   `nearby_features.py` ×2) korzystają z tego automatycznie, bez zmian w
+   ich kodzie. Testy: `test_overpass_query_retries_when_both_mirrors_fail_then_succeeds`,
+   `test_overpass_query_exhausts_retries_and_raises` (istniejące testy
+   wyścigu przeniesione na `_overpass_query_once`, wciąż zielone).
+2. **`services/nature.py::get_protected_areas` (GDOŚ) nie miało ŻADNEGO
+   retry** — potwierdzone na żywo: serwer odpowiedział HTTP 200 z PUSTYM
+   ciałem (`json.JSONDecodeError: Expecting value: line 1 column 1`),
+   `raise_for_status()` nie widzi w tym problemu (200 to sukces), więc
+   nawet gdyby ta funkcja używała `_get_with_retry`, to i tak by nie
+   pomogło — błąd wychodzi dopiero przy `.json()`, już PO udanym
+   pobraniu. **Naprawa**: teraz używa `_get_with_retry` (retry na
+   poziomie połączenia/5xx) ORAZ dodatkowej, zewnętrznej pętli (1 dodatkowa
+   próba całego pobrania+parsowania, 2s odstępu) — to drugie specyficznie
+   łapie przypadek "200 OK, ale nie do sparsowania". Zachowanie przy
+   trwałej awarii bez zmian: czysty `status: "error"`, nigdy fałszywe
+   "brak obszarów chronionych". Test:
+   `test_get_protected_areas_retries_on_empty_body_then_succeeds`.
+
+118 testów pytest (było 115, +3). Świadomie NIE ruszone: sama zagadka MPZP
+dla Korbielowa (patrz wyżej — to inna kategoria problemu, retry już tam
+jest od dawna i nie pomaga, bo to nie jest kwestia "spróbuj ponownie za 2s",
+tylko trwałej niedostępności backendu tej gminy przez dłuższy czas).
 
 ### 3.2 Zakładka „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
