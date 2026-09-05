@@ -39,15 +39,19 @@ wfs_powiat_registry.json — rejestr 380 serwerów WFS per powiat
    testuj logiką (pytest + monkeypatch/fake HTTP client), nie curlem na
    żywo. Do researchu użyj `WebSearch`.
 3. Uruchom testy: `pip install -r requirements-dev.txt && pytest -q`.
-   112+ testów, wszystkie bez sieci.
+   118+ testów, wszystkie bez sieci.
 
 ## Zasady, których nie łam
 
 - **`HANDOFF.md` aktualizuj w TYM SAMYM commicie co zmiana kodu** — nowy
   endpoint, integracja, naprawiony/odkryty ślepy zaułek, zmieniona
-  metodologia. Jeśli zmiana dotyczy tylko jednej appki, i tak zaktualizuj
-  plik w OBU repo (`wyszukiwarka-dzialek` ma identyczną kopię, poza
-  `TEST_PARCELS.md` — ten istnieje tylko tutaj).
+  metodologia. **Ten plik istnieje TYLKO w `analiza-dzialki`** (od
+  2026-09-05 — `wyszukiwarka-dzialek` już go NIE ma, nie twórz go tam z
+  powrotem). Wpisy krótkie i faktyczne — wynik, nie kronika dochodzenia.
+- **PR-y**: użyj `.github/pull_request_template.md` jako szkieletu opisu —
+  krótkie Summary (1-3 punkty) + Test plan. Nie pisz długiej narracji "co
+  próbowałem po drodze" w opisie PR — to miejsce na HANDOFF.md, jeśli
+  wniosek ma trwałą wartość, nie na sam opis pull requesta.
 - **Cache-busting przy KAŻDEJ zmianie `static/`**: podbij `?v=N` w
   `<script src="/static/app.js?v=N">` (`static/index.html`) ORAZ
   `CACHE_NAME` w `static/service-worker.js`. Bez tego przeglądarka (i PWA
