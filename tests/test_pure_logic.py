@@ -470,6 +470,53 @@ async def test_gather_nearby_parcels_no_powiat_fallback_for_normal_place(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_gather_nearby_parcels_plain_place_uses_small_radius(monkeypatch):
+    # Regresja zgłoszona na żywo 2026-09-05: wyszukiwanie "Raciechowice"
+    # (mała gmina w powiecie myślenickim) zwracało tylko działki z sąsiednich
+    # Dobczyc. Przyczyna: domyślny radius_m w enumerate_parcel_points_in_area
+    # był tymczasowo podbity do 15000 dla wyszukiwania całego powiatu, ale ta
+    # gałąź (zwykła nazwa miejscowości, NIE "Powiat X") nigdy nie przekazywała
+    # własnego radius_m, więc po cichu dziedziczyła podbity domyślny promień —
+    # 15km wokół małej gminy sięga głęboko w większych sąsiadów obsługiwanych
+    # przez ten sam serwer WFS powiatu, a limit max_features=500 (bez
+    # sortowania po odległości) mógł się wyczerpać, zanim padły działki z
+    # docelowej miejscowości. Ten test pilnuje, żeby ta gałąź NIE wracała do
+    # dużego promienia.
+    import inspect
+
+    # 1) sam default w sygnaturze funkcji musi zostać mały (nie 15000) —
+    # to jest właściwe źródło regresji, niezależnie od tego, co przekazują
+    # poszczególni wywołujący.
+    default_radius = inspect.signature(wfs_search.enumerate_parcel_points_in_area).parameters["radius_m"].default
+    assert default_radius <= 3000.0
+
+    calls = {}
+
+    async def fake_address_geocode(client, query, max_results=15):
+        return [{"lon": 20.0, "lat": 49.8, "description": "Raciechowice"}]
+
+    async def fake_find_parcel_by_xy(client, lon, lat):
+        return {"teryt_id": "121505_2.0001.1"}
+
+    async def fake_enumerate(client, teryt_id, x_2180, y_2180, anchor_lon, anchor_lat, radius_m=None, max_features=None):
+        calls["radius_m"] = radius_m
+        return []
+
+    monkeypatch.setattr(wfs_search, "geocode_address_points", fake_address_geocode)
+    monkeypatch.setattr(wfs_search, "find_parcel_by_xy", fake_find_parcel_by_xy)
+    monkeypatch.setattr(wfs_search, "enumerate_parcel_points_in_area", fake_enumerate)
+
+    result = await wfs_search._gather_nearby_parcels(None, "Raciechowice")
+
+    # 2) zwykła gałąź (nie "Powiat X") NIE przekazuje własnego radius_m —
+    # musi więc polegać na (małym) defaultcie sprawdzonym w kroku 1, tak
+    # jak gałąź is_powiat_query i scan_wfs_for_parcel_number przekazują
+    # SWOJE, jawne wartości.
+    assert calls["radius_m"] is None
+    assert result["status"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_search_propagates_gather_error(monkeypatch):
     async def fake_gather_error(client, place_query):
         return {"status": "error", "message": "Nie znaleziono miejscowości."}

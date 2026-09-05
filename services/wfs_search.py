@@ -80,27 +80,37 @@ def _lookup_wfs_config(teryt_id: str) -> Optional[dict[str, Any]]:
 async def enumerate_parcel_points_in_area(
     client: httpx.AsyncClient, teryt_id: str, x_2180: float, y_2180: float,
     anchor_lon: float, anchor_lat: float,
-    radius_m: float = 15000.0, max_features: int = 500,
+    radius_m: float = 2000.0, max_features: int = 500,
 ) -> list[tuple[float, float]]:
     """Queries the specific powiat's own direct WFS server (looked up from
     the registry via teryt_id) for parcel geometries within a square area,
     returning one safe interior (lon, lat) point per geometry found.
 
-    radius_m default bumped from 2000 to 15000 (2026-09-03, Klaudia wanted
-    to search a whole powiat by name) — deliberately NOT a true whole-powiat
-    enumeration (a real powiat can hold tens of thousands of parcels; this
-    function's downstream caller resolves EVERY candidate point's full
-    geometry via a separate ULDK call per point, so an unbounded candidate
-    count means an unbounded burst of concurrent ULDK requests, real
-    timeout/overload risk against a government service — Klaudia explicitly
-    chose "bigger radius" over "true whole powiat, however slow" for this
-    reason). max_features stays at 500 on purpose — it's the actual safety
-    valve bounding how many downstream ULDK calls a single search can ever
-    trigger, independent of radius_m; in a dense area, a 500-feature cap at
-    15km radius means only the nearest few hundred meters get sampled
-    (however the WFS server happens to order results) rather than truly
-    covering the whole 15km — a known, accepted limitation of this
-    approach, not a bug.
+    radius_m default: 2000m for a single locality. It was briefly bumped to
+    15000 (2026-09-03) so "Powiat X" queries could cover a whole powiat by
+    name — but that need is now served by _gather_nearby_parcels' own
+    is_powiat_query branch, which calls this with an explicit radius_m=10000
+    PER GMINA CENTROID. The bumped default itself was left in place and,
+    because the plain single-locality branch doesn't pass its own radius_m,
+    silently inherited it too — confirmed live 2026-09-05 (Klaudia: searching
+    "Raciechowice", a small gmina in powiat myślenicki, returned parcels only
+    from the much bigger neighbouring Dobczyce). A 15km circle around a small
+    gmina's center reaches deep into several bigger neighbouring gminas
+    served by the SAME powiat WFS server; combined with the max_features=500
+    hard cap and the WFS server's arbitrary (non-distance-sorted) result
+    order, the whole budget can be consumed by a neighbour before any of the
+    actual target locality's own parcels are reached. Restored to 2000 here
+    — do not bump this default again for a "whole area" feature; give that
+    feature its own explicit radius_m at the call site instead (as
+    is_powiat_query already does), the same way scan_wfs_for_parcel_number
+    passes its own 8000.
+
+    max_features stays at 500 on purpose — it's the actual safety valve
+    bounding how many downstream ULDK calls a single search can ever
+    trigger, independent of radius_m; in a dense area, a 500-feature cap
+    means only some subset of the radius gets sampled (however the WFS
+    server happens to order results) rather than truly covering the whole
+    area — a known, accepted limitation of this approach, not a bug.
 
     Axis order (northing,easting vs easting,northing) is determined ONCE per
     batch by comparing distance-to-anchor for both interpretations of the

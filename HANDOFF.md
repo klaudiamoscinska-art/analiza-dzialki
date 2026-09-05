@@ -367,6 +367,23 @@ odczyt/zapis teraz przez `asyncio.to_thread()`. `_get_with_retry()` nie
 łapał 5xx (tylko `TimeoutException`/`TransportError`) — przeciążony WFS
 zwracający 503 failował bez retry.
 
+**Naprawione 2026-09-05**: szukanie po samej miejscowości zwracało działki
+z sąsiedniej, większej gminy zamiast z wyszukiwanej (zgłoszone na żywo:
+"Raciechowice" 1500m² → same wyniki z Dobczyc). Przyczyna: domyślny
+`radius_m` w `enumerate_parcel_points_in_area()` został podbity 2→15km
+2026-09-03 dla obsługi "Powiat X", ale gałąź powiatowa (`is_powiat_query`)
+i tak dostała WŁASNY, jawny promień (10km/gminę) — zwykła gałąź (pojedyncza
+miejscowość, `_gather_nearby_parcels`) nigdy nie przekazywała swojego
+`radius_m`, więc po cichu dziedziczyła ten podbity default. 15km wokół
+małej gminy sięga w większych sąsiadów obsługiwanych przez TEN SAM serwer
+WFS powiatu; `max_features=500` (twardy limit, bez sortowania po
+odległości) potrafił się wyczerpać wynikami sąsiada, zanim padła choć
+jedna działka z docelowej miejscowości. Naprawa: przywrócony default 2km.
+**Gotcha na przyszłość**: jeśli znów potrzebne będzie szukanie "całego
+obszaru" większym promieniem, dawaj temu wywołaniu WŁASNY jawny `radius_m`
+(tak jak `is_powiat_query` i `scan_wfs_for_parcel_number`) — nie podbijaj
+współdzielonego defaultu funkcji.
+
 ### 3.2 „Szukaj działki" — wyszukiwanie po miejscowości + rozmiarze
 
 Najbardziej złożona część appki. Pipeline: (1) geokodowanie miejscowości →
