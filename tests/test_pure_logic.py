@@ -33,6 +33,12 @@ from services import (
 )
 
 
+async def _no_sleep(*_args, **_kwargs) -> None:
+    """Drop-in replacement for asyncio.sleep in tests that exercise a retry
+    loop's delay — keeps tests fast without changing the retry logic itself."""
+    return None
+
+
 # ---------------------------------------------------------------------------
 # geo_utils._parse_uldk_geometry
 # ---------------------------------------------------------------------------
@@ -1123,12 +1129,12 @@ class _FakeGetJsonClient:
     def __init__(self, data):
         self._data = data
 
-    async def get(self, url, params=None, timeout=None):
+    async def get(self, url, params=None, timeout=None, follow_redirects=None):
         return _FakeArcgisResponse(self._data)
 
 
 class _FailingGetClient:
-    async def get(self, url, params=None, timeout=None):
+    async def get(self, url, params=None, timeout=None, follow_redirects=None):
         raise RuntimeError("network down")
 
 
@@ -1201,9 +1207,46 @@ async def test_get_protected_areas_dedupes_same_name():
 
 
 @pytest.mark.asyncio
-async def test_get_protected_areas_request_failure_returns_error():
+async def test_get_protected_areas_request_failure_returns_error(monkeypatch):
+    monkeypatch.setattr(nature.asyncio, "sleep", _no_sleep)
     result = await nature.get_protected_areas(_FailingGetClient(), 500000.0, 300000.0)
     assert result["status"] == "error"
+
+
+class _EmptyBodyResponse:
+    """Models GDOŚ's confirmed-live quirk: HTTP 200 with a body that isn't
+    valid JSON (raise_for_status() doesn't object to a 200 — the failure
+    only surfaces when something calls .json())."""
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        import json
+        return json.loads("")  # raises json.JSONDecodeError, same as a real empty body
+
+
+class _EmptyThenOkClient:
+    def __init__(self, ok_data):
+        self._ok_data = ok_data
+        self.calls = 0
+
+    async def get(self, url, params=None, timeout=None, follow_redirects=None):
+        self.calls += 1
+        if self.calls == 1:
+            return _EmptyBodyResponse()
+        return _FakeArcgisResponse(self._ok_data)
+
+
+@pytest.mark.asyncio
+async def test_get_protected_areas_retries_on_empty_body_then_succeeds(monkeypatch):
+    monkeypatch.setattr(nature.asyncio, "sleep", _no_sleep)
+    client = _EmptyThenOkClient({"features": []})
+
+    result = await nature.get_protected_areas(client, 500000.0, 300000.0)
+
+    assert result == {"status": "ok", "areas": []}
+    assert client.calls == 2
 
 
 @pytest.mark.asyncio
@@ -1711,7 +1754,7 @@ async def test_overpass_query_returns_first_successful_mirror(monkeypatch):
         "http://b": {"json": {"elements": ["real result"]}},
     })
 
-    result = await http_utils._overpass_query(client, "fake query")
+    result = await http_utils._overpass_query_once(client, "fake query")
 
     assert result == {"elements": ["real result"]}
 
@@ -1723,7 +1766,7 @@ async def test_overpass_query_all_mirrors_failing_raises():
     })
 
     with pytest.raises(RuntimeError):
-        await http_utils._overpass_query(client, "fake query")
+        await http_utils._overpass_query_once(client, "fake query")
 
 
 @pytest.mark.asyncio
@@ -1742,6 +1785,52 @@ async def test_overpass_query_does_not_wait_for_a_slower_blocked_mirror(monkeypa
 
     assert result == {"elements": ["quick"]}
     assert elapsed < 0.2  # well under the slow mirror's 0.3s delay
+
+
+# ---------------------------------------------------------------------------
+# http_utils._overpass_query — retry wrapper around _overpass_query_once,
+# added 2026-09-05 after Klaudia reported live (on the "Zawoja" test parcel)
+# that the nearest-road check failed once, then succeeded on a manual
+# re-run moments later — racing mirrors only helps when at least one is
+# healthy on a given attempt, not when BOTH happen to fail at once.
+# ---------------------------------------------------------------------------
+
+class _CountingFailThenSucceedClient:
+    """Fails every mirror on the first N passes, then succeeds — models
+    "both mirrors briefly down/rate-limited, then recover"."""
+
+    def __init__(self, fail_passes: int):
+        self.fail_passes = fail_passes
+        self.pass_count = 0
+
+    async def post(self, url, data=None, headers=None, timeout=None):
+        # Both mirrors are hit within the same pass; count passes by URL
+        # cycling back to the first one.
+        if url == http_utils.OVERPASS_URLS[0]:
+            self.pass_count += 1
+        if self.pass_count <= self.fail_passes:
+            raise RuntimeError(f"{url} niedostępny")
+        return _FakeJsonPostResponse({"elements": ["recovered"]})
+
+
+@pytest.mark.asyncio
+async def test_overpass_query_retries_when_both_mirrors_fail_then_succeeds():
+    client = _CountingFailThenSucceedClient(fail_passes=1)
+
+    result = await http_utils._overpass_query(client, "fake query", retry_delay_s=0)
+
+    assert result == {"elements": ["recovered"]}
+    assert client.pass_count == 2  # first pass failed, second (retry) succeeded
+
+
+@pytest.mark.asyncio
+async def test_overpass_query_exhausts_retries_and_raises():
+    client = _CountingFailThenSucceedClient(fail_passes=99)
+
+    with pytest.raises(RuntimeError):
+        await http_utils._overpass_query(client, "fake query", max_retries=1, retry_delay_s=0)
+
+    assert client.pass_count == 2  # initial attempt + 1 retry, then give up
 
 
 # ---------------------------------------------------------------------------

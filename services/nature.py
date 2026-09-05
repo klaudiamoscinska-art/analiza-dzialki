@@ -10,6 +10,7 @@ open-source projects that already query this exact service (see
 HANDOFF.md for citations) — NOT from GDOŚ's own live GetCapabilities,
 which this sandbox can't reach. Confirm live before trusting this
 further if it ever needs debugging."""
+import asyncio
 from typing import Any, Optional
 
 import httpx
@@ -17,7 +18,7 @@ from pyproj import Transformer
 from shapely.geometry import Point, shape
 
 from config import GDOS_LAYERS, GDOS_WFS_URL, TIMEOUT_GDOS, logger
-from http_utils import describe_exc
+from http_utils import _get_with_retry, describe_exc
 
 _to_4326 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
 
@@ -71,13 +72,31 @@ async def get_protected_areas(
         "typeNames": typenames, "srsName": "EPSG:2180", "bbox": bbox,
         "outputFormat": "application/json", "count": "50",
     }
-    try:
-        resp = await client.get(GDOS_WFS_URL, params=params, timeout=TIMEOUT_GDOS)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
+    # Retries the whole fetch+parse once more (added 2026-09-05, reported
+    # live by Klaudia) — _get_with_retry already retries connection-level
+    # failures (timeout/5xx), but a server that answers HTTP 200 with an
+    # EMPTY body (confirmed live: json.JSONDecodeError "Expecting value:
+    # line 1 column 1") slips past that, since raise_for_status() doesn't
+    # object to a 200. Treated as the same kind of transient government-
+    # server flakiness _get_with_retry exists for elsewhere in this app,
+    # not a permanent "no data" answer.
+    last_exc: Optional[Exception] = None
+    data = None
+    for attempt in range(2):
+        try:
+            resp = await _get_with_retry(client, GDOS_WFS_URL, params=params, timeout=TIMEOUT_GDOS)
+            data = resp.json()
+            break
+        except Exception as exc:
+            last_exc = exc
+            if attempt == 0:
+                logger.warning(
+                    "get_protected_areas: próba 1/2 nieudana (%s), ponawiam", describe_exc(exc),
+                )
+                await asyncio.sleep(2.0)
+    if data is None:
         logger.warning("get_protected_areas: usługa GDOŚ WFS niedostępna", exc_info=True)
-        return {"status": "error", "message": f"Usługa GDOŚ (obszary chronione) niedostępna: {describe_exc(exc)}"}
+        return {"status": "error", "message": f"Usługa GDOŚ (obszary chronione) niedostępna: {describe_exc(last_exc)}"}
 
     features = data.get("features", [])
     if not features:

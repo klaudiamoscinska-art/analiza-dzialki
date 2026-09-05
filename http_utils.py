@@ -24,7 +24,7 @@ def describe_exc(exc: BaseException) -> str:
     return str(exc) or type(exc).__name__
 
 
-async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, Any]:
+async def _overpass_query_once(client: httpx.AsyncClient, query: str) -> dict[str, Any]:
     """Races every configured mirror CONCURRENTLY instead of trying them
     one after another — fixed 2026-09-04, after Klaudia's nearest-road
     check kept failing even once TIMEOUT_OVERPASS was corrected to exceed
@@ -37,7 +37,8 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
     got a chance. Racing them fixes both axes at once: worst-case latency
     drops to a single TIMEOUT_OVERPASS window (not one per mirror), and a
     blocked mirror no longer delays a healthy one — whichever answers
-    first wins, the rest are cancelled."""
+    first wins, the rest are cancelled. One pass only — see _overpass_query
+    for the retry wrapper around this."""
     async def _try(url: str) -> dict[str, Any]:
         resp = await client.post(url, data={"data": query}, headers=OVERPASS_HEADERS, timeout=TIMEOUT_OVERPASS)
         resp.raise_for_status()
@@ -63,6 +64,35 @@ async def _overpass_query(client: httpx.AsyncClient, query: str) -> dict[str, An
                 other.cancel()
             return result
     raise last_exc or RuntimeError("Overpass niedostępny")
+
+
+async def _overpass_query(
+    client: httpx.AsyncClient, query: str, max_retries: int = 1, retry_delay_s: float = 2.0,
+) -> dict[str, Any]:
+    """Retries _overpass_query_once when BOTH mirrors fail on the same pass
+    — added 2026-09-05, reported live by Klaudia (confirmed on the "Zawoja"
+    test parcel: the nearest-road check failed once, then succeeded on a
+    manual re-run moments later). Racing mirrors (see _overpass_query_once)
+    only helps when at least one is healthy on a given attempt; it does
+    nothing for the case where BOTH happen to be briefly overloaded/rate-
+    limited at once, which is exactly the kind of transient flakiness
+    _get_with_retry already covers for every other government service this
+    app calls — Overpass (a free, best-effort public service, not
+    Render-specific) was the one remaining gap without any retry at all."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await _overpass_query_once(client, query)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "_overpass_query: próba %d/%d nieudana, oba mirrory (%s: %s)",
+                attempt + 1, max_retries + 1, type(exc).__name__, exc,
+            )
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay_s)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def _get_with_retry(
