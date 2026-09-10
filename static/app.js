@@ -800,9 +800,14 @@
     const p = data.parcel;
     let html = "";
 
+    const dimsPart =
+      typeof data.short_side_m === "number" && typeof data.long_side_m === "number"
+        ? ` · ${data.short_side_m}×${data.long_side_m} m (obrys)`
+        : "";
+    const areaPart = typeof data.area_m2 === "number" ? ` · ${fmtArea(data.area_m2)}` : "";
     html += `<div class="teryt-echo">${escapeHTML(p.teryt_id)} · ${escapeHTML(
       p.commune || ""
-    )}, pow. ${escapeHTML(p.county || "")}, woj. ${escapeHTML(p.voivodeship || "")}${
+    )}, pow. ${escapeHTML(p.county || "")}, woj. ${escapeHTML(p.voivodeship || "")}${areaPart}${dimsPart}${
       p.multiple_found ? " · uwaga: znaleziono więcej niż jedną działkę, pokazano pierwszą" : ""
     }</div>`;
 

@@ -71,13 +71,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from shapely.geometry import mapping
+from shapely.ops import transform as shapely_transform
 
 from config import (
     HTTP_TIMEOUT, KIAPP_URL, KIEG_URL, KIMPZP_URL, MAX_CONCURRENT_SECTIONS, TIMEOUT_RESOLVE_BUDGET,
     TTL_AIR_QUALITY, TTL_BUILDINGS, TTL_CADASTRE, TTL_FLOOD_ZONE, TTL_LANDSLIDE, TTL_MINING_AREAS,
     TTL_NEAREST_ROAD, TTL_PROTECTED_AREAS, TTL_UTILITIES, TTL_WATERLOGGING, TTL_WATERWAYS, TTL_ZONING, logger,
 )
-from geo_utils import geod, to_2180
+from geo_utils import _rectangle_side_lengths, geod, to_2180
 from http_utils import describe_exc
 from services import cache
 from services.air_quality import get_air_quality
@@ -501,6 +502,8 @@ def _analyze_meta(parcel: dict[str, Any], geometry, centroid, area_m2: float) ->
     big response) and /api/analyze-stream (sent as the first SSE event, so
     the map and identity line render immediately instead of waiting for any
     of the 12 slower sections)."""
+    geometry_2180 = shapely_transform(to_2180.transform, geometry)
+    short_side_m, long_side_m = _rectangle_side_lengths(geometry_2180)
     return {
         "parcel": {
             "teryt_id": parcel["teryt_id"],
@@ -515,6 +518,8 @@ def _analyze_meta(parcel: dict[str, Any], geometry, centroid, area_m2: float) ->
         "geometry_geojson": mapping(geometry),
         "centroid": {"lat": centroid.y, "lon": centroid.x},
         "area_m2": round(area_m2, 2),
+        "short_side_m": round(short_side_m, 1),
+        "long_side_m": round(long_side_m, 1),
         "permits": {"gunb_link": get_gunb_link(parcel["parcel_no"])},
         "land_registry": {"ekw_link": get_ekw_link()},
         "map_layers": {

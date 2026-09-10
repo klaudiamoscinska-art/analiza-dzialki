@@ -93,6 +93,33 @@ def test_rectangle_side_lengths_rotated_rectangle():
 
 
 # ---------------------------------------------------------------------------
+# main._analyze_meta — wymiary obrysowe (bounding-rectangle short/long side)
+# added to the analysis summary alongside area_m2, added 2026-09-10.
+# ---------------------------------------------------------------------------
+
+def test_analyze_meta_includes_bounding_rectangle_dimensions():
+    parcel = {
+        "teryt_id": "146501_1.0001.1/2",
+        "voivodeship_name": "mazowieckie",
+        "county": "warszawski",
+        "commune": "Warszawa",
+        "parcel_no": "1/2",
+        "multiple_found": False,
+    }
+    # A near-rectangular parcel roughly 20m x 60m (WGS84 degrees at this
+    # latitude), well within Poland's bounds used elsewhere in the app.
+    geometry = Polygon([(21.0, 52.0), (21.0002, 52.0), (21.0002, 52.0006), (21.0, 52.0006), (21.0, 52.0)])
+    centroid = geometry.centroid
+    area_m2, _ = geo_utils.geod.geometry_area_perimeter(geometry)
+
+    meta = main._analyze_meta(parcel, geometry, centroid, abs(area_m2))
+
+    assert meta["short_side_m"] < meta["long_side_m"]
+    assert meta["short_side_m"] == pytest.approx(13.7, abs=1.0)
+    assert meta["long_side_m"] == pytest.approx(66.7, abs=1.0)
+
+
+# ---------------------------------------------------------------------------
 # geo_utils._polygon_outline_normalized
 # ---------------------------------------------------------------------------
 
