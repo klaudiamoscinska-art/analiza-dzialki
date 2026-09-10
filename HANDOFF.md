@@ -191,6 +191,15 @@ ostateczności usunięcie i dodanie ikonki na nowo.
   błędu 400/404).
 - `GET /api/search-by-parcel-size?place=&area_m2=&width_m=&length_m=&dims_as_maximum=`
   — patrz sekcja 3.2.
+- **Wymiary obrysowe w podsumowaniu** (2026-09-10): `main._analyze_meta()`
+  (pole `meta`/pierwszy event SSE) zwraca teraz, obok `area_m2`,
+  `short_side_m`/`long_side_m` — bok krótszy/dłuższy prostokąta
+  najmniejszego pola opisanego na działce (`geo_utils._rectangle_side_lengths()`,
+  ta sama funkcja co w "Szukaj działki po rozmiarze"). Frontend
+  (`static/app.js::renderResults`) dokleja je do linii `teryt-echo` na
+  górze wyniku, np. `... · 6001 m² · 42.3×141.9 m (obrys)`. To przybliżenie
+  dla nieregularnych działek, nie rzeczywisty kształt — dokładny obrys
+  i tak jest widoczny na mapie/`geometry_geojson`.
 
 ### Współbieżność i wydajność
 - **Jeden trwały `httpx.AsyncClient`** (`main.py::_get_http_client()`) na
